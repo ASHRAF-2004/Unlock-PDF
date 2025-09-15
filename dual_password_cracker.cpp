@@ -9,9 +9,8 @@
 #include <chrono>
 #include <atomic>
 #include <cstring>
-#include <openssl/evp.h>
-#include <openssl/aes.h>
-#include <openssl/sha.h>
+#include "pure_sha256.hpp"
+#include "pure_aes256.hpp"
 
 struct PDFEncryptInfo {
     std::vector<unsigned char> id;          // Document ID
@@ -39,60 +38,23 @@ void print_progress() {
               << progress << "% (" << tried << "/" << g_total_passwords << ")" << std::flush;
 }
 
-// SHA-256 hash with optional salt and rounds
+// SHA-256 hash with optional salt (pure C++)
 std::vector<unsigned char> sha256(const std::string& input,
                                 const std::vector<unsigned char>& salt,
-                                int rounds = 1) {
-    std::vector<unsigned char> hash(32);
-    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
-    
-    if (!ctx) return hash;
-
-    for (int i = 0; i < rounds; i++) {
-        EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr);
-        EVP_DigestUpdate(ctx, input.c_str(), input.size());
-        
-        if (!salt.empty()) {
-            EVP_DigestUpdate(ctx, salt.data(), salt.size());
-        }
-        
-        unsigned int hash_len;
-        EVP_DigestFinal_ex(ctx, hash.data(), &hash_len);
-    }
-
-    EVP_MD_CTX_free(ctx);
-    return hash;
+                                int /*rounds*/ = 1) {
+    std::vector<unsigned char> combined;
+    combined.reserve(input.size() + salt.size());
+    combined.insert(combined.end(), input.begin(), input.end());
+    combined.insert(combined.end(), salt.begin(), salt.end());
+    auto digest = purecrypto::sha256(combined.data(), combined.size());
+    return std::vector<unsigned char>(digest.begin(), digest.end());
 }
 
 bool aes256_cbc_decrypt(const std::vector<unsigned char>& key,
                        const std::vector<unsigned char>& iv,
                        const std::vector<unsigned char>& ciphertext,
                        std::vector<unsigned char>& plaintext) {
-    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
-    if (!ctx) return false;
-
-    if (!EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key.data(), iv.data())) {
-        EVP_CIPHER_CTX_free(ctx);
-        return false;
-    }
-
-    plaintext.resize(ciphertext.size() + EVP_MAX_BLOCK_LENGTH);
-    int update_len = 0, final_len = 0;
-
-    if (!EVP_DecryptUpdate(ctx, plaintext.data(), &update_len, 
-                          ciphertext.data(), static_cast<int>(ciphertext.size()))) {
-        EVP_CIPHER_CTX_free(ctx);
-        return false;
-    }
-
-    if (!EVP_DecryptFinal_ex(ctx, plaintext.data() + update_len, &final_len)) {
-        EVP_CIPHER_CTX_free(ctx);
-        return false;
-    }
-
-    plaintext.resize(update_len + final_len);
-    EVP_CIPHER_CTX_free(ctx);
-    return true;
+    return purecrypto::aes256_cbc_decrypt(key, iv, ciphertext, plaintext);
 }
 
 bool check_password_r6(const std::string& password,
@@ -286,9 +248,6 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Initialize OpenSSL
-    OpenSSL_add_all_digests();
-
     std::cout << "\nLoading password list..." << std::endl;
 
     // Read password list
@@ -354,9 +313,6 @@ int main(int argc, char* argv[]) {
 
     auto end_time = std::chrono::steady_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time);
-
-    // Cleanup OpenSSL
-    EVP_cleanup();
 
     std::cout << "\n\nFinished in " << duration.count() << " seconds" << std::endl;
 
