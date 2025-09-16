@@ -1,0 +1,45 @@
+name: Inspect new_pdf_cracker.cpp
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Collect first 200 lines (if text)
+        run: |
+          set -o pipefail
+          (sed -n '1,200p' new_pdf_cracker.cpp || true) > snippet.txt
+
+      - name: Is Git treating it as text?
+        run: |
+          file new_pdf_cracker.cpp > file_type.txt || true
+          # Try to count textual lines (won't print file)
+          (grep -nI . new_pdf_cracker.cpp >/dev/null && echo "text-like" || echo "binary-like") > grep_check.txt
+
+      - name: Diffstat vs main (shows what changed, not full diff)
+        run: |
+          git fetch --depth=50 origin main || true
+          (git diff --name-status origin/main...HEAD || true) > diffstat.txt
+
+      - name: Package report
+        run: |
+          printf "=== file(1) ===\n" > REPORT.txt
+          cat file_type.txt >> REPORT.txt
+          printf "\n=== grep_check ===\n" >> REPORT.txt
+          cat grep_check.txt >> REPORT.txt
+          printf "\n=== diffstat ===\n" >> REPORT.txt
+          cat diffstat.txt >> REPORT.txt
+          printf "\n=== snippet (first 200 lines) ===\n" >> REPORT.txt
+          cat snippet.txt >> REPORT.txt
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: inspection-report
+          path: REPORT.txt
