@@ -1374,14 +1374,14 @@ bool try_user_password(const std::string& password, const PDFEncryptInfo& info, 
     const unsigned char* u_data = info.u_string.data();
     ByteView validation_salt(u_data + 32, 8);
     ByteView key_salt(u_data + 40, 8);
-    ByteView doc_id(info.id.empty() ? nullptr : info.id.data(), info.id.size());
+    ByteView empty_user_data(nullptr, 0);
 
-    std::vector<unsigned char> hash = compute_hash_v5(truncated, validation_salt, doc_id, revision);
+    std::vector<unsigned char> hash = compute_hash_v5(truncated, validation_salt, empty_user_data, revision);
     if (hash.size() < 32 || !std::equal(u_data, u_data + 32, hash.begin())) {
         return false;
     }
 
-    std::vector<unsigned char> key = compute_hash_v5(truncated, key_salt, doc_id, revision);
+    std::vector<unsigned char> key = compute_hash_v5(truncated, key_salt, empty_user_data, revision);
     if (key.size() < 32) {
         return false;
     }
@@ -1404,7 +1404,8 @@ bool try_owner_password(const std::string& password, const PDFEncryptInfo& info,
     const unsigned char* o_data = info.o_string.data();
     ByteView validation_salt(o_data + 32, 8);
     ByteView key_salt(o_data + 40, 8);
-    ByteView user_entry(info.u_string.empty() ? nullptr : info.u_string.data(), info.u_string.size());
+    size_t user_entry_len = std::min<size_t>(48, info.u_string.size());
+    ByteView user_entry(user_entry_len == 0 ? nullptr : info.u_string.data(), user_entry_len);
 
     std::vector<unsigned char> hash = compute_hash_v5(truncated, validation_salt, user_entry, revision);
     if (hash.size() < 32 || !std::equal(o_data, o_data + 32, hash.begin())) {
