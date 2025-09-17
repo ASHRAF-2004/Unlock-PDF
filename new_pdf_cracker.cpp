@@ -1491,7 +1491,21 @@ int main(int argc, char* argv[]) {
         }
 
         std::string line;
+        bool first_line = true;
         while (std::getline(pass_file, line)) {
+            while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) {
+                line.pop_back();
+            }
+
+            if (first_line) {
+                first_line = false;
+                if (line.size() >= 3 && static_cast<unsigned char>(line[0]) == 0xEF &&
+                    static_cast<unsigned char>(line[1]) == 0xBB &&
+                    static_cast<unsigned char>(line[2]) == 0xBF) {
+                    line.erase(0, 3);
+                }
+            }
+
             if (!line.empty()) {
                 passwords.push_back(line);
             }
