@@ -1530,7 +1530,6 @@ int main(int argc, char* argv[]) {
         std::istringstream pass_stream(file_contents);
         std::string line;
         bool first_line = true;
-        bool first_line = true;
         while (std::getline(pass_stream, line)) {
             if (!line.empty() && line.back() == '\r') {
                 line.pop_back();
