@@ -1,0 +1,500 @@
+#include "pdf/pdf_parser.h"
+
+#include <algorithm>
+#include <cctype>
+#include <fstream>
+#include <iostream>
+#include <iterator>
+#include <sstream>
+#include <string>
+#include <vector>
+
+namespace unlock_pdf::pdf {
+namespace {
+
+void skip_whitespace_and_comments(const std::string& data, std::size_t& pos) {
+    while (pos < data.size()) {
+        unsigned char ch = static_cast<unsigned char>(data[pos]);
+        if (std::isspace(ch)) {
+            ++pos;
+        } else if (data[pos] == '%') {
+            while (pos < data.size() && data[pos] != '\n' && data[pos] != '\r') {
+                ++pos;
+            }
+        } else {
+            break;
+        }
+    }
+}
+
+int parse_pdf_int(const std::string& data, std::size_t& pos) {
+    skip_whitespace_and_comments(data, pos);
+    if (pos >= data.size()) {
+        return 0;
+    }
+
+    bool negative = false;
+    if (data[pos] == '+') {
+        ++pos;
+    } else if (data[pos] == '-') {
+        negative = true;
+        ++pos;
+    }
+
+    int value = 0;
+    while (pos < data.size() && std::isdigit(static_cast<unsigned char>(data[pos]))) {
+        value = value * 10 + (data[pos] - '0');
+        ++pos;
+    }
+    return negative ? -value : value;
+}
+
+int hex_value(char ch) {
+    if (ch >= '0' && ch <= '9') {
+        return ch - '0';
+    }
+    if (ch >= 'a' && ch <= 'f') {
+        return 10 + (ch - 'a');
+    }
+    if (ch >= 'A' && ch <= 'F') {
+        return 10 + (ch - 'A');
+    }
+    return -1;
+}
+
+std::string parse_pdf_name(const std::string& data, std::size_t& pos) {
+    std::string name;
+    while (pos < data.size()) {
+        char ch = data[pos];
+        if (std::isspace(static_cast<unsigned char>(ch)) || ch == '/' || ch == '<' || ch == '>' ||
+            ch == '[' || ch == ']' || ch == '(' || ch == ')') {
+            break;
+        }
+        if (ch == '#') {
+            if (pos + 2 < data.size()) {
+                int high = hex_value(data[pos + 1]);
+                int low = hex_value(data[pos + 2]);
+                if (high >= 0 && low >= 0) {
+                    name.push_back(static_cast<char>((high << 4) | low));
+                    pos += 3;
+                    continue;
+                }
+            }
+            ++pos;
+        } else {
+            name.push_back(ch);
+            ++pos;
+        }
+    }
+    return name;
+}
+
+std::vector<unsigned char> parse_pdf_hex_string(const std::string& data, std::size_t& pos) {
+    std::vector<unsigned char> result;
+    if (pos >= data.size() || data[pos] != '<') {
+        return result;
+    }
+    ++pos;
+
+    std::string hex;
+    while (pos < data.size() && data[pos] != '>') {
+        if (!std::isspace(static_cast<unsigned char>(data[pos]))) {
+            hex.push_back(data[pos]);
+        }
+        ++pos;
+    }
+    if (pos < data.size() && data[pos] == '>') {
+        ++pos;
+    }
+
+    if (hex.empty()) {
+        return result;
+    }
+
+    if (hex.size() % 2 == 1) {
+        hex.push_back('0');
+    }
+
+    for (std::size_t i = 0; i + 1 < hex.size(); i += 2) {
+        int high = hex_value(hex[i]);
+        int low = hex_value(hex[i + 1]);
+        if (high >= 0 && low >= 0) {
+            result.push_back(static_cast<unsigned char>((high << 4) | low));
+        }
+    }
+
+    return result;
+}
+
+std::vector<unsigned char> parse_pdf_literal_string(const std::string& data, std::size_t& pos) {
+    std::vector<unsigned char> result;
+    if (pos >= data.size() || data[pos] != '(') {
+        return result;
+    }
+    ++pos;
+
+    int depth = 1;
+    while (pos < data.size() && depth > 0) {
+        char ch = data[pos++];
+        if (ch == '\\') {
+            if (pos >= data.size()) {
+                break;
+            }
+            char next = data[pos++];
+            switch (next) {
+                case 'n': result.push_back('\n'); break;
+                case 'r': result.push_back('\r'); break;
+                case 't': result.push_back('\t'); break;
+                case 'b': result.push_back('\b'); break;
+                case 'f': result.push_back('\f'); break;
+                case '(': result.push_back('('); break;
+                case ')': result.push_back(')'); break;
+                case '\\': result.push_back('\\'); break;
+                case '\r':
+                    if (pos < data.size() && data[pos] == '\n') {
+                        ++pos;
+                    }
+                    break;
+                case '\n':
+                    break;
+                default:
+                    if (next >= '0' && next <= '7') {
+                        std::string digits(1, next);
+                        for (int i = 0; i < 2 && pos < data.size(); ++i) {
+                            char digit = data[pos];
+                            if (digit >= '0' && digit <= '7') {
+                                digits.push_back(digit);
+                                ++pos;
+                            } else {
+                                break;
+                            }
+                        }
+                        char value = static_cast<char>(std::stoi(digits, nullptr, 8));
+                        result.push_back(static_cast<unsigned char>(value));
+                    } else {
+                        result.push_back(static_cast<unsigned char>(next));
+                    }
+                    break;
+            }
+        } else if (ch == '(') {
+            result.push_back('(');
+            ++depth;
+        } else if (ch == ')') {
+            --depth;
+            if (depth > 0) {
+                result.push_back(')');
+            }
+        } else {
+            result.push_back(static_cast<unsigned char>(ch));
+        }
+    }
+
+    return result;
+}
+
+std::vector<unsigned char> parse_pdf_string_object(const std::string& data, std::size_t& pos) {
+    if (pos >= data.size()) {
+        return {};
+    }
+
+    if (data[pos] == '<') {
+        if (pos + 1 < data.size() && data[pos + 1] == '<') {
+            return {};
+        }
+        return parse_pdf_hex_string(data, pos);
+    }
+
+    if (data[pos] == '(') {
+        return parse_pdf_literal_string(data, pos);
+    }
+
+    while (pos < data.size() && !std::isspace(static_cast<unsigned char>(data[pos])) && data[pos] != '/') {
+        ++pos;
+    }
+    return {};
+}
+
+std::size_t find_dictionary_end(const std::string& data, std::size_t start) {
+    int depth = 0;
+    std::size_t pos = start;
+    while (pos + 1 < data.size()) {
+        if (data[pos] == '<' && data[pos + 1] == '<') {
+            depth++;
+            pos += 2;
+            continue;
+        }
+        if (data[pos] == '>' && data[pos + 1] == '>') {
+            depth--;
+            pos += 2;
+            if (depth == 0) {
+                return pos;
+            }
+            continue;
+        }
+        if (data[pos] == '(') {
+            ++pos;
+            int level = 1;
+            while (pos < data.size() && level > 0) {
+                char ch = data[pos++];
+                if (ch == '\\') {
+                    if (pos < data.size()) {
+                        ++pos;
+                    }
+                } else if (ch == '(') {
+                    ++level;
+                } else if (ch == ')') {
+                    --level;
+                }
+            }
+            continue;
+        }
+        if (data[pos] == '<') {
+            ++pos;
+            while (pos < data.size() && data[pos] != '>') {
+                ++pos;
+            }
+            if (pos < data.size()) {
+                ++pos;
+            }
+            continue;
+        }
+        ++pos;
+    }
+    return std::string::npos;
+}
+
+std::vector<unsigned char> extract_document_id(const std::string& data) {
+    std::size_t pos = data.find("/ID");
+    if (pos == std::string::npos) {
+        return {};
+    }
+    pos += 3;
+    skip_whitespace_and_comments(data, pos);
+    if (pos >= data.size() || data[pos] != '[') {
+        return {};
+    }
+    ++pos;
+    skip_whitespace_and_comments(data, pos);
+    if (pos >= data.size()) {
+        return {};
+    }
+    return parse_pdf_string_object(data, pos);
+}
+
+bool extract_encryption_info(const std::string& data, PDFEncryptInfo& info) {
+    std::size_t encrypt_pos = data.find("/Encrypt");
+    if (encrypt_pos == std::string::npos) {
+        std::cout << "No /Encrypt dictionary found" << std::endl;
+        return false;
+    }
+
+    std::size_t pos = encrypt_pos + 8;
+    skip_whitespace_and_comments(data, pos);
+    if (pos >= data.size() || !std::isdigit(static_cast<unsigned char>(data[pos]))) {
+        std::cout << "Failed to parse /Encrypt reference" << std::endl;
+        return false;
+    }
+
+    int obj_num = parse_pdf_int(data, pos);
+    skip_whitespace_and_comments(data, pos);
+    int gen_num = 0;
+    if (pos < data.size() && std::isdigit(static_cast<unsigned char>(data[pos]))) {
+        gen_num = parse_pdf_int(data, pos);
+    }
+
+    std::cout << "Found /Encrypt reference to object " << obj_num << " " << gen_num << std::endl;
+
+    std::string obj_marker = std::to_string(obj_num) + " " + std::to_string(gen_num) + " obj";
+    std::size_t obj_pos = data.find(obj_marker);
+    if (obj_pos == std::string::npos) {
+        std::cout << "Could not locate encryption object" << std::endl;
+        return false;
+    }
+
+    std::size_t dict_start = data.find("<<", obj_pos);
+    if (dict_start == std::string::npos) {
+        std::cout << "Encryption object does not contain a dictionary" << std::endl;
+        return false;
+    }
+    std::size_t dict_end = find_dictionary_end(data, dict_start);
+    if (dict_end == std::string::npos) {
+        std::cout << "Failed to parse encryption dictionary" << std::endl;
+        return false;
+    }
+
+    std::cout << "Found encryption object. Content:" << std::endl;
+    std::string snippet = data.substr(dict_start, std::min<std::size_t>(dict_end - dict_start, 200));
+    for (char& ch : snippet) {
+        if (ch == '\r' || ch == '\n') {
+            ch = ' ';
+        }
+    }
+    std::cout << snippet << std::endl;
+
+    pos = dict_start + 2;
+    while (pos < dict_end) {
+        skip_whitespace_and_comments(data, pos);
+        if (pos >= dict_end) {
+            break;
+        }
+        if (data[pos] != '/') {
+            ++pos;
+            continue;
+        }
+        ++pos;
+        std::string key = parse_pdf_name(data, pos);
+        skip_whitespace_and_comments(data, pos);
+
+        if (key == "V") {
+            info.version = parse_pdf_int(data, pos);
+        } else if (key == "R") {
+            info.revision = parse_pdf_int(data, pos);
+        } else if (key == "Length") {
+            info.length = parse_pdf_int(data, pos);
+        } else if (key == "U") {
+            info.u_string = parse_pdf_string_object(data, pos);
+        } else if (key == "O") {
+            info.o_string = parse_pdf_string_object(data, pos);
+        } else if (key == "UE") {
+            info.ue_string = parse_pdf_string_object(data, pos);
+        } else if (key == "OE") {
+            info.oe_string = parse_pdf_string_object(data, pos);
+        } else if (key == "Perms") {
+            info.perms = parse_pdf_string_object(data, pos);
+        } else {
+            if (pos >= dict_end) {
+                break;
+            }
+            char token = data[pos];
+            if (token == '<' && pos + 1 < data.size() && data[pos + 1] == '<') {
+                std::size_t nested_end = find_dictionary_end(data, pos);
+                if (nested_end == std::string::npos) {
+                    break;
+                }
+                pos = nested_end;
+            } else if (token == '<') {
+                parse_pdf_hex_string(data, pos);
+            } else if (token == '(') {
+                parse_pdf_literal_string(data, pos);
+            } else if (token == '[') {
+                ++pos;
+                int depth = 1;
+                while (pos < dict_end && depth > 0) {
+                    if (data[pos] == '[') {
+                        ++depth;
+                        ++pos;
+                    } else if (data[pos] == ']') {
+                        --depth;
+                        ++pos;
+                    } else if (data[pos] == '(') {
+                        parse_pdf_literal_string(data, pos);
+                    } else if (data[pos] == '<' && pos + 1 < data.size() && data[pos + 1] == '<') {
+                        std::size_t nested = find_dictionary_end(data, pos);
+                        if (nested == std::string::npos) {
+                            pos = dict_end;
+                        } else {
+                            pos = nested;
+                        }
+                    } else if (data[pos] == '<') {
+                        parse_pdf_hex_string(data, pos);
+                    } else {
+                        ++pos;
+                    }
+                }
+            } else {
+                while (pos < dict_end && !std::isspace(static_cast<unsigned char>(data[pos])) && data[pos] != '/') {
+                    ++pos;
+                }
+            }
+        }
+    }
+
+    if (info.revision >= 5 && info.length == 0) {
+        info.length = 256;
+    }
+
+    info.encrypted = true;
+    return true;
+}
+
+void print_pdf_structure(const std::string& data) {
+    std::cout << "\nAnalyzing PDF structure:" << std::endl;
+    std::cout << "------------------------" << std::endl;
+
+    const char* keywords[] = {
+        "/Encrypt", "obj", "endobj", "/Filter", "/V ", "/R ", "/O", "/U",
+        "/Length", "/CF", "/StmF", "/StrF", "/AESV3"};
+
+    for (const char* keyword : keywords) {
+        std::size_t pos = 0;
+        int count = 0;
+        while ((pos = data.find(keyword, pos)) != std::string::npos) {
+            if (count < 3) {
+                std::size_t context_end = std::min(pos + static_cast<std::size_t>(50), data.size());
+                std::string context = data.substr(pos, context_end - pos);
+                for (char& ch : context) {
+                    if (ch == '\r' || ch == '\n') {
+                        ch = ' ';
+                    }
+                }
+                std::cout << "Found '" << keyword << "' at offset " << pos << ": " << context << std::endl;
+            }
+            ++count;
+            ++pos;
+        }
+        if (count > 0) {
+            std::cout << "Total occurrences of '" << keyword << "': " << count << std::endl;
+        }
+    }
+
+    std::cout << "------------------------\n" << std::endl;
+}
+
+}  // namespace
+
+bool read_pdf_encrypt_info(const std::string& filename, PDFEncryptInfo& info) {
+    std::cout << "Opening PDF file: " << filename << std::endl;
+    std::ifstream file(filename, std::ios::binary);
+    if (!file) {
+        std::cerr << "Error: Cannot open PDF file" << std::endl;
+        return false;
+    }
+
+    std::string data((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    if (data.size() < 5 || data.compare(0, 5, "%PDF-") != 0) {
+        std::cerr << "Error: Not a valid PDF file" << std::endl;
+        return false;
+    }
+
+    std::cout << "PDF file opened successfully" << std::endl;
+    std::cout << "Checking PDF header..." << std::endl;
+    std::cout << "Valid PDF header found" << std::endl;
+
+    print_pdf_structure(data);
+
+    if (!extract_encryption_info(data, info)) {
+        std::cerr << "Error: Could not find encryption information" << std::endl;
+        return false;
+    }
+
+    info.id = extract_document_id(data);
+
+    std::cout << "PDF encryption detected:" << std::endl;
+    std::cout << "  Version: " << info.version << std::endl;
+    std::cout << "  Revision: " << info.revision << std::endl;
+    if (info.length > 0) {
+        std::cout << "  Key Length: " << info.length << " bits" << std::endl;
+    }
+    if (info.revision >= 5) {
+        std::cout << "  Encryption: AES-256" << std::endl;
+        if (info.revision >= 6) {
+            std::cout << "  Method: AESV3" << std::endl;
+        } else {
+            std::cout << "  Method: Standard Security Handler R5" << std::endl;
+        }
+    }
+
+    return true;
+}
+
+}  // namespace unlock_pdf::pdf
