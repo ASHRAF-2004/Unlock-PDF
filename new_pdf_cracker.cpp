@@ -653,10 +653,11 @@ private:
         }
 
         decrypt_round_keys_[0] = enc_keys[14];
-        decrypt_round_keys_[14] = enc_keys[0];
         for (int round = 1; round < 14; ++round) {
             decrypt_round_keys_[round] = enc_keys[14 - round];
+            inv_mix_columns(decrypt_round_keys_[round]);
         }
+        decrypt_round_keys_[14] = enc_keys[0];
 
         valid_ = true;
     }
