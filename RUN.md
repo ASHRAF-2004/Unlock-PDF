@@ -25,12 +25,14 @@ The Release binary will be generated at `build/Release/pdf_password_retriever.ex
 ./build/Release/pdf_password_retriever.exe <wordlist.txt> <encrypted.pdf>
 ```
 
-## Helper Script (Windows)
-Run `build_and_run.bat` to configure, build, and invoke the cracker in one step. Pass the same arguments you would give the executable:
-```cmd
-build_and_run.bat passwords\\passwordlist.txt test_files\\file.pdf
-```
-The script stops if configuration or compilation fails and attempts to locate the executable in both single- and multi-config build directories.
+## One-Click Helper Script (Windows)
+Double-click `build_and_run.bat` to configure, build, and launch the cracker with the sample files (`passwordlist.txt` and `file.pdf`).
+
+- The script automatically switches to the repository directory, runs CMake configuration, builds the executable, and executes it.
+- If you want to test different files, edit the `WORDLIST` and `PDF` values at the top of the script before running it.
+
+## Finding Additional Passwords
+The tool stops after the first password match. If you know there is another password in your wordlist, remove the previously found password from the list (or comment it out) and run the program again to continue searching.
 
 ## PDF Metadata Inspection
 The tool automatically parses encryption metadata while attempting passwords. If you only need to inspect a PDF without cracking it, run:
