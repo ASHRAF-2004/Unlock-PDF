@@ -47,14 +47,6 @@ void print_progress() {
               << progress << "% (" << tried << "/" << total << ")" << std::flush;
 }
 
-struct ByteView {
-    const unsigned char* data = nullptr;
-    size_t size = 0;
-
-    ByteView() = default;
-    ByteView(const unsigned char* ptr, size_t count) : data(ptr), size(count) {}
-};
-
 namespace {
 
 inline uint32_t rotr(uint32_t value, uint32_t bits) {
@@ -796,57 +788,41 @@ bool aes256_cbc_decrypt(const std::vector<unsigned char>& key,
 }
 
 std::vector<unsigned char> compute_hash_v5(const std::string& password,
-                                           ByteView salt,
-                                           ByteView user_data,
+                                           const std::vector<unsigned char>& salt,
+                                           const std::vector<unsigned char>& user_data,
                                            int revision) {
-    std::vector<unsigned char> input;
-    input.reserve(password.size() + salt.size + user_data.size);
-    input.insert(input.end(), password.begin(), password.end());
-    if (salt.size > 0 && salt.data != nullptr) {
-        input.insert(input.end(), salt.data, salt.data + salt.size);
-    }
-    if (user_data.size > 0 && user_data.data != nullptr) {
-        input.insert(input.end(), user_data.data, user_data.data + user_data.size);
-    }
+    std::vector<unsigned char> input(password.begin(), password.end());
+    input.insert(input.end(), salt.begin(), salt.end());
+    input.insert(input.end(), user_data.begin(), user_data.end());
 
     std::vector<unsigned char> current = sha256_bytes(input);
     if (revision < 6) {
         return current;
     }
 
-    std::vector<unsigned char> k1;
-    std::vector<unsigned char> repeated;
-    std::vector<unsigned char> encrypted;
-    std::vector<unsigned char> key(16);
-    std::vector<unsigned char> iv(16);
-
+    std::vector<unsigned char> password_bytes(password.begin(), password.end());
     int round = 0;
     while (true) {
         ++round;
-        size_t combined_length = password.size() + current.size() + user_data.size;
-        k1.resize(combined_length);
+        std::vector<unsigned char> k1;
+        k1.reserve(password_bytes.size() + current.size() + user_data.size());
+        k1.insert(k1.end(), password_bytes.begin(), password_bytes.end());
+        k1.insert(k1.end(), current.begin(), current.end());
+        k1.insert(k1.end(), user_data.begin(), user_data.end());
 
-        auto k1_it = k1.begin();
-        k1_it = std::copy(password.begin(), password.end(), k1_it);
-        k1_it = std::copy(current.begin(), current.end(), k1_it);
-        if (user_data.size > 0 && user_data.data != nullptr) {
-            k1_it = std::copy(user_data.data, user_data.data + user_data.size, k1_it);
-        }
-
-        repeated.resize(combined_length * 64);
-        auto repeat_it = repeated.begin();
+        std::vector<unsigned char> repeated;
+        repeated.reserve(k1.size() * 64);
         for (int i = 0; i < 64; ++i) {
-            repeat_it = std::copy(k1.begin(), k1.end(), repeat_it);
+            repeated.insert(repeated.end(), k1.begin(), k1.end());
         }
 
         if (current.size() < 32) {
             return {};
         }
 
-        std::copy(current.begin(), current.begin() + 16, key.begin());
-        std::copy(current.begin() + 16, current.begin() + 32, iv.begin());
-
-        encrypted.resize(repeated.size());
+        std::vector<unsigned char> key(current.begin(), current.begin() + 16);
+        std::vector<unsigned char> iv(current.begin() + 16, current.begin() + 32);
+        std::vector<unsigned char> encrypted;
         if (!aes128_cbc_encrypt(key, iv, repeated, encrypted)) {
             return {};
         }
@@ -1362,22 +1338,18 @@ bool try_user_password(const std::string& password, const PDFEncryptInfo& info, 
         return false;
     }
 
-    std::string truncated = password;
-    if (truncated.size() > 127) {
-        truncated.resize(127);
-    }
+    std::string truncated = password.substr(0, 127);
+    std::vector<unsigned char> user_hash(info.u_string.begin(), info.u_string.begin() + 32);
+    std::vector<unsigned char> validation_salt(info.u_string.begin() + 32, info.u_string.begin() + 40);
+    std::vector<unsigned char> key_salt(info.u_string.begin() + 40, info.u_string.begin() + 48);
 
-    const unsigned char* u_data = info.u_string.data();
-    ByteView validation_salt(u_data + 32, 8);
-    ByteView key_salt(u_data + 40, 8);
-    ByteView doc_id(info.id.empty() ? nullptr : info.id.data(), info.id.size());
-
-    std::vector<unsigned char> hash = compute_hash_v5(truncated, validation_salt, doc_id, revision);
-    if (hash.size() < 32 || !std::equal(u_data, u_data + 32, hash.begin())) {
+    std::vector<unsigned char> hash = compute_hash_v5(truncated, validation_salt, info.id, revision);
+    if (hash.size() < user_hash.size() ||
+        !std::equal(user_hash.begin(), user_hash.end(), hash.begin())) {
         return false;
     }
 
-    std::vector<unsigned char> key = compute_hash_v5(truncated, key_salt, doc_id, revision);
+    std::vector<unsigned char> key = compute_hash_v5(truncated, key_salt, info.id, revision);
     if (key.size() < 32) {
         return false;
     }
@@ -1392,22 +1364,18 @@ bool try_owner_password(const std::string& password, const PDFEncryptInfo& info,
         return false;
     }
 
-    std::string truncated = password;
-    if (truncated.size() > 127) {
-        truncated.resize(127);
-    }
+    std::string truncated = password.substr(0, 127);
+    std::vector<unsigned char> owner_hash(info.o_string.begin(), info.o_string.begin() + 32);
+    std::vector<unsigned char> validation_salt(info.o_string.begin() + 32, info.o_string.begin() + 40);
+    std::vector<unsigned char> key_salt(info.o_string.begin() + 40, info.o_string.begin() + 48);
 
-    const unsigned char* o_data = info.o_string.data();
-    ByteView validation_salt(o_data + 32, 8);
-    ByteView key_salt(o_data + 40, 8);
-    ByteView user_entry(info.u_string.empty() ? nullptr : info.u_string.data(), info.u_string.size());
-
-    std::vector<unsigned char> hash = compute_hash_v5(truncated, validation_salt, user_entry, revision);
-    if (hash.size() < 32 || !std::equal(o_data, o_data + 32, hash.begin())) {
+    std::vector<unsigned char> hash = compute_hash_v5(truncated, validation_salt, info.u_string, revision);
+    if (hash.size() < owner_hash.size() ||
+        !std::equal(owner_hash.begin(), owner_hash.end(), hash.begin())) {
         return false;
     }
 
-    std::vector<unsigned char> key = compute_hash_v5(truncated, key_salt, user_entry, revision);
+    std::vector<unsigned char> key = compute_hash_v5(truncated, key_salt, info.u_string, revision);
     if (key.size() < 32) {
         return false;
     }

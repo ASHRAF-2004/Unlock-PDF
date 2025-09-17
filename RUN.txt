@@ -1,0 +1,45 @@
+
+
+Compile the generated source:
+
+g++ -std=c++17 -pthread new_pdf_cracker.cpp -o new_pdf_cracker
+
+faster:
+g++ -std=c++17 -O3 -march=native -pthread new_pdf_cracker.cpp -o new_pdf_cracker
+
+g++ -std=c++17 -O3 -march=native -pthread pure_pdf_cracker.cpp -o pure_pdf_cracker
+
+
+Run the cracker:
+
+powershell:
+./new_pdf_cracker passwords/passwordlist.txt test_files/file.pdf
+cmd:
+new_pdf_cracker.exe passwords/passwordlist.txt test_files/file.pdf
+
+
+powershell:
+./pure_pdf_cracker passwords/passwordlist.txt test_files/file.pdf
+cmd:
+pure_pdf_cracker.exe passwords/passwordlist.txt test_files/file.pdf
+
+
+Compile the generated source:
+
+g++ -std=c++17 -pthread pdf_analyze.cpp -o pdf_analyze
+
+faster:
+g++ -std=c++17 -O3 -march=native -pthread pdf_analyze.cpp -o pdf_analyze
+
+pdf_analyze.exe test_files/file.pdf
+
+
+
+Compile the generated source:
+
+g++ -std=c++17 -pthread dual_password_cracker.cpp -o dual_password_cracker
+
+faster:
+g++ -std=c++17 -O3 -march=native -pthread dual_password_cracker.cpp -o dual_password_cracker
+
+dual_password_cracker.exe passwords/passwordlist.txt test_files/file.pdf
