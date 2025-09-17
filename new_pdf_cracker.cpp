@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <codecvt>
 #include <chrono>
 #include <cctype>
 #include <cstdint>
@@ -10,7 +11,9 @@
 #include <iomanip>
 #include <iostream>
 #include <iterator>
+#include <locale>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -1484,15 +1487,64 @@ int main(int argc, char* argv[]) {
     std::cout << "Reading password list..." << std::endl;
     std::vector<std::string> passwords;
     {
-        std::ifstream pass_file(argv[1]);
+        std::ifstream pass_file(argv[1], std::ios::binary);
         if (!pass_file) {
             std::cerr << "Error: Cannot open password list: " << argv[1] << std::endl;
             return 1;
         }
 
+        std::vector<char> raw_data((std::istreambuf_iterator<char>(pass_file)), std::istreambuf_iterator<char>());
+
+        std::string file_contents;
+        if (raw_data.size() >= 2) {
+            unsigned char b0 = static_cast<unsigned char>(raw_data[0]);
+            unsigned char b1 = static_cast<unsigned char>(raw_data[1]);
+
+            if (raw_data.size() >= 2 && b0 == 0xFF && b1 == 0xFE) {
+                std::u16string utf16;
+                utf16.reserve((raw_data.size() - 2) / 2);
+                for (size_t i = 2; i + 1 < raw_data.size(); i += 2) {
+                    char16_t code = static_cast<unsigned char>(raw_data[i]) |
+                                    (static_cast<char16_t>(static_cast<unsigned char>(raw_data[i + 1])) << 8);
+                    utf16.push_back(code);
+                }
+                std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> converter;
+                file_contents = converter.to_bytes(utf16);
+            } else if (raw_data.size() >= 2 && b0 == 0xFE && b1 == 0xFF) {
+                std::u16string utf16;
+                utf16.reserve((raw_data.size() - 2) / 2);
+                for (size_t i = 2; i + 1 < raw_data.size(); i += 2) {
+                    char16_t code = (static_cast<char16_t>(static_cast<unsigned char>(raw_data[i])) << 8) |
+                                    static_cast<unsigned char>(raw_data[i + 1]);
+                    utf16.push_back(code);
+                }
+                std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> converter;
+                file_contents = converter.to_bytes(utf16);
+            } else {
+                file_contents.assign(raw_data.begin(), raw_data.end());
+            }
+        } else {
+            file_contents.assign(raw_data.begin(), raw_data.end());
+        }
+
+        std::istringstream pass_stream(file_contents);
         std::string line;
         bool first_line = true;
-        while (std::getline(pass_file, line)) {
+        bool first_line = true;
+        while (std::getline(pass_stream, line)) {
+            if (!line.empty() && line.back() == '\r') {
+                line.pop_back();
+            }
+
+            if (first_line) {
+                first_line = false;
+                if (line.size() >= 3 && static_cast<unsigned char>(line[0]) == 0xEF &&
+                    static_cast<unsigned char>(line[1]) == 0xBB &&
+                    static_cast<unsigned char>(line[2]) == 0xBF) {
+                    line.erase(0, 3);
+                }
+            }
+
             while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) {
                 line.pop_back();
             }
