@@ -25,11 +25,33 @@ The Release binary will be generated at `build/Release/pdf_password_retriever.ex
 ./build/Release/pdf_password_retriever.exe <wordlist.txt> <encrypted.pdf>
 ```
 
-## One-Click Helper Script (Windows)
-Double-click `build_and_run.bat` to configure, build, and launch the cracker with the sample files (`passwordlist.txt` and `file.pdf`).
+## One-Click Helper Scripts
 
-- The script automatically switches to the repository directory, runs CMake configuration, builds the executable, and executes it.
-- If you want to test different files, edit the `WORDLIST` and `PDF` values at the top of the script before running it.
+### Windows (`build_and_run.bat`)
+Run the helper from an existing Command Prompt/PowerShell session or double-click it in Explorer. The console window now stays open so you can read the output.
+
+- Default inputs are `passwordlist.txt` and `file.pdf`. Override them with command-line options, for example:
+  ```powershell
+  build_and_run.bat --wordlist my_passwords.txt --pdf secret.pdf
+  ```
+- Pass `--no-pause` when launching from an existing terminal to skip the final key prompt.
+- Additional flags:
+  - `--build-dir <dir>` – use a custom build folder.
+  - `--debug` – configure a Debug build instead of Release.
+
+### Linux (`build_and_run_linux.sh`)
+```bash
+./build_and_run_linux.sh
+```
+- Uses the same defaults and command-line options as the Windows helper (minus `--no-pause`).
+- Add `--no-run` if you only want to configure and compile the project.
+
+### macOS (`build_and_run_macos.sh`)
+```bash
+./build_and_run_macos.sh
+```
+- Identical behavior to the Linux script; it compiles the project with the default Apple toolchain and then launches the binary.
+- Requires Xcode command-line tools (or an equivalent Clang toolchain) plus CMake.
 
 ## Finding Additional Passwords
 The tool stops after the first password match. If you know there is another password in your wordlist, remove the previously found password from the list (or comment it out) and run the program again to continue searching.
