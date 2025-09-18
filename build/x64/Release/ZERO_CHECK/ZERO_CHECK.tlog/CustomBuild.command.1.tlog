@@ -1,0 +1,10 @@
+^C:\USERS\ASHRAF ALI\DESKTOP\UNLOCK-PDF\BUILD\CMAKEFILES\DAEA942F8F9EFFED01425CCF37DF63ED\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" "-SC:/Users/ASHRAF ALI/Desktop/Unlock-PDF" "-BC:/Users/ASHRAF ALI/Desktop/Unlock-PDF/build" --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file "C:/Users/ASHRAF ALI/Desktop/Unlock-PDF/build/pdf_password_retriever.sln"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

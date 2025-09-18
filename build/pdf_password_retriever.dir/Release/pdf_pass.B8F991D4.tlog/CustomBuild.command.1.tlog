@@ -1,0 +1,10 @@
+^C:\USERS\ASHRAF ALI\DESKTOP\UNLOCK-PDF\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" "-SC:/Users/ASHRAF ALI/Desktop/Unlock-PDF" "-BC:/Users/ASHRAF ALI/Desktop/Unlock-PDF/build" --check-stamp-file "C:/Users/ASHRAF ALI/Desktop/Unlock-PDF/build/CMakeFiles/generate.stamp"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

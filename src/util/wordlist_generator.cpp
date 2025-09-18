@@ -1,5 +1,6 @@
 #include "util/wordlist_generator.h"
 
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 #include <limits>
@@ -8,18 +9,31 @@
 namespace unlock_pdf::util {
 namespace {
 
-std::size_t safe_pow(std::size_t base, std::size_t exp) {
+unsigned __int128 pow_u128(std::size_t base, std::size_t exp) {
     if (exp == 0) {
         return 1;
     }
-    std::size_t result = 1;
+    unsigned __int128 result = 1;
+    unsigned __int128 base_value = static_cast<unsigned __int128>(base);
     for (std::size_t i = 0; i < exp; ++i) {
-        if (result > std::numeric_limits<std::size_t>::max() / base) {
-            throw std::overflow_error("wordlist size overflow");
-        }
-        result *= base;
+        result *= base_value;
     }
     return result;
+}
+
+std::string to_string_u128(unsigned __int128 value) {
+    if (value == 0) {
+        return "0";
+    }
+
+    std::string digits;
+    while (value > 0) {
+        unsigned int digit = static_cast<unsigned int>(value % 10);
+        digits.push_back(static_cast<char>('0' + digit));
+        value /= 10;
+    }
+    std::reverse(digits.begin(), digits.end());
+    return digits;
 }
 
 void generate_length(std::size_t length,
@@ -82,8 +96,21 @@ WordlistSummary generate_wordlist(const WordlistOptions& options,
     }
 
     WordlistSummary summary{};
+    unsigned __int128 total_passwords = 0;
     for (std::size_t length = options.min_length; length <= options.max_length; ++length) {
-        summary.total_passwords += safe_pow(alphabet.size(), length);
+        unsigned __int128 count = pow_u128(alphabet.size(), length);
+        total_passwords += count;
+        if (!summary.overflowed &&
+            total_passwords > static_cast<unsigned __int128>(std::numeric_limits<std::size_t>::max())) {
+            summary.overflowed = true;
+        }
+    }
+
+    summary.total_passwords_text = to_string_u128(total_passwords);
+    if (!summary.overflowed) {
+        summary.total_passwords = static_cast<std::size_t>(total_passwords);
+    } else {
+        summary.total_passwords = std::numeric_limits<std::size_t>::max();
     }
 
     std::ofstream output(output_path, std::ios::binary);
@@ -92,7 +119,12 @@ WordlistSummary generate_wordlist(const WordlistOptions& options,
     }
 
     std::cout << "Generating wordlist with " << alphabet.size() << " characters ("
-              << summary.total_passwords << " combinations)" << std::endl;
+              << summary.total_passwords_text << " combinations";
+    if (summary.overflowed) {
+        std::cout << ", exceeds 64-bit counter";
+    }
+    std::cout << ")" << std::endl;
+
 
     std::string current;
     std::size_t generated_count = 0;

@@ -183,8 +183,13 @@ int main(int argc, char* argv[]) {
     try {
         if (!generation_path.empty()) {
             auto summary = unlock_pdf::util::generate_wordlist(word_options, generation_path);
-            std::cout << "Wordlist written to " << generation_path << " (" << summary.total_passwords
-                      << " passwords)" << std::endl;
+            std::cout << "Wordlist written to " << generation_path << " (" << summary.total_passwords_text
+                      << " passwords";
+            if (summary.overflowed) {
+                std::cout << ", exceeds 64-bit counter";
+            }
+            std::cout << ")" << std::endl;
+            
             if (wordlist_path.empty()) {
                 wordlist_path = generation_path;
             }

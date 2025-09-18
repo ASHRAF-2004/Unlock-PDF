@@ -8,8 +8,8 @@
 namespace unlock_pdf::util {
 
 struct WordlistOptions {
-    std::size_t min_length = 1;
-    std::size_t max_length = 1;
+    std::size_t min_length = 10;
+    std::size_t max_length = 10;
     bool include_uppercase = true;
     bool include_lowercase = true;
     bool include_digits = true;
@@ -20,6 +20,8 @@ struct WordlistOptions {
 
 struct WordlistSummary {
     std::size_t total_passwords = 0;
+    bool overflowed = false;
+    std::string total_passwords_text;
 };
 
 WordlistSummary generate_wordlist(const WordlistOptions& options,

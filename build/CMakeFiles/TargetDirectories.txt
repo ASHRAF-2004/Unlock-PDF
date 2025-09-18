@@ -1,0 +1,3 @@
+C:/Users/ASHRAF ALI/Desktop/Unlock-PDF/build/CMakeFiles/pdf_password_retriever.dir
+C:/Users/ASHRAF ALI/Desktop/Unlock-PDF/build/CMakeFiles/ALL_BUILD.dir
+C:/Users/ASHRAF ALI/Desktop/Unlock-PDF/build/CMakeFiles/ZERO_CHECK.dir
