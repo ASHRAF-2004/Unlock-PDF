@@ -9,31 +9,59 @@
 namespace unlock_pdf::util {
 namespace {
 
-unsigned __int128 pow_u128(std::size_t base, std::size_t exp) {
-    if (exp == 0) {
-        return 1;
+std::string add_decimal_strings(const std::string& a, const std::string& b) {
+    std::string result;
+    result.reserve(std::max(a.size(), b.size()) + 1);
+
+    int carry = 0;
+    auto it_a = a.rbegin();
+    auto it_b = b.rbegin();
+    while (it_a != a.rend() || it_b != b.rend() || carry != 0) {
+        int digit_a = (it_a != a.rend()) ? (*it_a++ - '0') : 0;
+        int digit_b = (it_b != b.rend()) ? (*it_b++ - '0') : 0;
+        int sum = digit_a + digit_b + carry;
+        carry = sum / 10;
+        result.push_back(static_cast<char>('0' + (sum % 10)));
     }
-    unsigned __int128 result = 1;
-    unsigned __int128 base_value = static_cast<unsigned __int128>(base);
-    for (std::size_t i = 0; i < exp; ++i) {
-        result *= base_value;
-    }
+    std::reverse(result.begin(), result.end());
     return result;
 }
 
-std::string to_string_u128(unsigned __int128 value) {
-    if (value == 0) {
+std::string multiply_decimal_string(std::string value, std::size_t multiplier) {
+    if (value == "0" || multiplier == 0) {
         return "0";
     }
 
-    std::string digits;
-    while (value > 0) {
-        unsigned int digit = static_cast<unsigned int>(value % 10);
-        digits.push_back(static_cast<char>('0' + digit));
-        value /= 10;
+    std::string result;
+    result.reserve(value.size() + 20);
+
+    std::size_t carry = 0;
+    for (auto it = value.rbegin(); it != value.rend(); ++it) {
+        std::size_t digit = static_cast<std::size_t>(*it - '0');
+        std::size_t product = digit * multiplier + carry;
+        result.push_back(static_cast<char>('0' + (product % 10)));
+        carry = product / 10;
     }
-    std::reverse(digits.begin(), digits.end());
-    return digits;
+
+    while (carry > 0) {
+        result.push_back(static_cast<char>('0' + (carry % 10)));
+        carry /= 10;
+    }
+
+    while (result.size() > 1 && result.back() == '0') {
+        result.pop_back();
+    }
+
+    std::reverse(result.begin(), result.end());
+    return result;
+}
+
+std::string pow_decimal_string(std::size_t base, std::size_t exp) {
+    std::string result = "1";
+    for (std::size_t i = 0; i < exp; ++i) {
+        result = multiply_decimal_string(result, base);
+    }
+    return result;
 }
 
 void generate_length(std::size_t length,
@@ -96,22 +124,37 @@ WordlistSummary generate_wordlist(const WordlistOptions& options,
     }
 
     WordlistSummary summary{};
-    unsigned __int128 total_passwords = 0;
+    std::size_t total_passwords = 0;
+    std::string total_passwords_text = "0";
     for (std::size_t length = options.min_length; length <= options.max_length; ++length) {
-        unsigned __int128 count = pow_u128(alphabet.size(), length);
-        total_passwords += count;
-        if (!summary.overflowed &&
-            total_passwords > static_cast<unsigned __int128>(std::numeric_limits<std::size_t>::max())) {
+        const std::string count_text = pow_decimal_string(alphabet.size(), length);
+        total_passwords_text = add_decimal_strings(total_passwords_text, count_text);
+
+        bool count_overflowed = false;
+        std::size_t count = 1;
+        for (std::size_t i = 0; i < length; ++i) {
+            if (count > std::numeric_limits<std::size_t>::max() / alphabet.size()) {
+                count_overflowed = true;
+                break;
+            }
+            count *= alphabet.size();
+        }
+
+        if (!count_overflowed && !summary.overflowed) {
+            if (total_passwords > std::numeric_limits<std::size_t>::max() - count) {
+                summary.overflowed = true;
+                total_passwords = std::numeric_limits<std::size_t>::max();
+            } else {
+                total_passwords += count;
+            }
+        } else {
             summary.overflowed = true;
+            total_passwords = std::numeric_limits<std::size_t>::max();
         }
     }
 
-    summary.total_passwords_text = to_string_u128(total_passwords);
-    if (!summary.overflowed) {
-        summary.total_passwords = static_cast<std::size_t>(total_passwords);
-    } else {
-        summary.total_passwords = std::numeric_limits<std::size_t>::max();
-    }
+    summary.total_passwords_text = total_passwords_text;
+    summary.total_passwords = summary.overflowed ? std::numeric_limits<std::size_t>::max() : total_passwords;
 
     std::ofstream output(output_path, std::ios::binary);
     if (!output) {
