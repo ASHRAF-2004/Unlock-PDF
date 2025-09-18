@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "pdf/pdf_types.h"
+#include "util/wordlist_generator.h"
 
 namespace unlock_pdf::pdf {
 
@@ -21,6 +22,11 @@ bool crack_pdf(const std::vector<std::string>& passwords,
                const std::string& pdf_path,
                CrackResult& result,
                unsigned int thread_count = 0);
+
+bool crack_pdf_bruteforce(const unlock_pdf::util::WordlistOptions& options,
+                          const std::string& pdf_path,
+                          CrackResult& result,
+                          unsigned int thread_count = 0);
 
 }  // namespace unlock_pdf::pdf
 
