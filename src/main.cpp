@@ -23,7 +23,7 @@ void print_usage(const char* program) {
               << "Wordlist generation options:\n"
               << "  --generate-wordlist <path>  Generate a wordlist at the given path\n"
               << "  --min-length <n>            Minimum password length (default: 6)\n"
-              << "  --max-length <n>            Maximum password length (default: 6)\n"
+              << "  --max-length <n>            Maximum password length (default: 32)\n"
               << "  --include-uppercase         Include uppercase letters\n"
               << "  --exclude-uppercase         Exclude uppercase letters\n"
               << "  --include-lowercase         Include lowercase letters\n"
@@ -35,6 +35,7 @@ void print_usage(const char* program) {
               << "  --custom-chars <chars>      Use the provided characters\n"
               << "  --use-custom-only           Only use the provided custom characters\n\n"
               << "You can combine generation and cracking in one run.\n"
+                << "If no wordlist is provided, passwords are generated on the fly.\n"
               << "Example: " << program
               << " --generate-wordlist passwords.txt --min-length 4 --max-length 4 --include-digits\n"
               << "         " << program << " --pdf file.pdf --wordlist passwords.txt --threads 4\n";
@@ -119,7 +120,7 @@ int main(int argc, char* argv[]) {
 
     unlock_pdf::util::WordlistOptions word_options;
     word_options.min_length = 6;
-    word_options.max_length = 6;
+    word_options.max_length = 32;
 
     std::string pdf_path;
     std::string wordlist_path;
@@ -196,17 +197,19 @@ int main(int argc, char* argv[]) {
         }
 
         if (!pdf_path.empty()) {
-            if (wordlist_path.empty()) {
-                throw std::runtime_error("no wordlist specified for cracking");
-            }
-
-            std::cout << "Reading password list..." << std::endl;
-            std::vector<std::string> passwords = load_wordlist(wordlist_path);
-            std::cout << "Loaded " << passwords.size() << " passwords" << std::endl;
-
             unlock_pdf::pdf::CrackResult result;
-            if (!unlock_pdf::pdf::crack_pdf(passwords, pdf_path, result, thread_count)) {
-                return 1;
+            if (wordlist_path.empty()) {
+                if (!unlock_pdf::pdf::crack_pdf_bruteforce(word_options, pdf_path, result, thread_count)) {
+                    return 1;
+                }
+            } else {
+                std::cout << "Reading password list..." << std::endl;
+                std::vector<std::string> passwords = load_wordlist(wordlist_path);
+                std::cout << "Loaded " << passwords.size() << " passwords" << std::endl;
+
+                if (!unlock_pdf::pdf::crack_pdf(passwords, pdf_path, result, thread_count)) {
+                    return 1;
+                }
             }
 
             if (!result.success) {
