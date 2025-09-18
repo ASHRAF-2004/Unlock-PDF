@@ -10,9 +10,9 @@
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
-The resulting executable will be located at `build/pdf_password_retriever`. Run it as:
+The resulting executable will be located at `build/pdf_password_retriever`. Run it with explicit options, for example:
 ```bash
-./build/pdf_password_retriever <wordlist.txt> <encrypted.pdf>
+./build/pdf_password_retriever --pdf secret.pdf --wordlist passwords.txt
 ```
 
 ## Configure & Build (Windows - x64)
@@ -22,7 +22,7 @@ cmake --build build --config Release
 ```
 The Release binary will be generated at `build/Release/pdf_password_retriever.exe`. Execute it via PowerShell or CMD:
 ```powershell
-./build/Release/pdf_password_retriever.exe <wordlist.txt> <encrypted.pdf>
+./build/Release/pdf_password_retriever.exe --pdf secret.pdf --wordlist passwords.txt
 ```
 
 ## One-Click Helper Scripts
@@ -55,6 +55,13 @@ Run the helper from an existing Command Prompt/PowerShell session or double-clic
 
 ## Finding Additional Passwords
 The tool stops after the first password match. If you know there is another password in your wordlist, remove the previously found password from the list (or comment it out) and run the program again to continue searching.
+
+## Brute-Forcing Without a Wordlist
+You can omit the `--wordlist` flag to generate candidate passwords on the fly. Adjust the character set and length bounds to fit your search space:
+```bash
+./build/pdf_password_retriever --pdf secret.pdf --min-length 6 --max-length 8 --include-digits --include-lowercase
+```
+By default the generator uses uppercase, lowercase, digits, and common special characters with a length range of 6–32. Large searches can take significant time; refine the options whenever possible.
 
 ## PDF Metadata Inspection
 The tool automatically parses encryption metadata while attempting passwords. If you only need to inspect a PDF without cracking it, run:
