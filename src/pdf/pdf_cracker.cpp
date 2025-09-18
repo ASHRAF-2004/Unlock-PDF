@@ -9,6 +9,8 @@
 #include <mutex>
 #include <thread>
 #include <vector>
+#include <cstdint>
+#include <functional>
 
 #include "crypto/aes.h"
 #include "crypto/md5.h"
@@ -212,6 +214,7 @@ bool check_password_variants(const std::string& password,
 
 void print_progress(std::size_t tried, std::size_t total) {
     if (total == 0) {
+        std::cout << "\rPasswords tried: " << tried << std::flush;
         return;
     }
     double progress = static_cast<double>(tried) / static_cast<double>(total) * 100.0;
@@ -310,6 +313,206 @@ bool crack_pdf(const std::vector<std::string>& passwords,
         std::cout << "Password found: " << found_password << std::endl;
     } else {
         std::cout << "Password not found in the provided list" << std::endl;
+    }
+
+    return true;
+}
+
+bool crack_pdf_bruteforce(const unlock_pdf::util::WordlistOptions& options,
+                          const std::string& pdf_path,
+                          CrackResult& result,
+                          unsigned int thread_count) {
+    result = CrackResult{};
+
+    if (options.min_length == 0 || options.max_length < options.min_length) {
+        std::cerr << "Error: invalid password length range" << std::endl;
+        return false;
+    }
+
+    std::string alphabet;
+    if (options.use_custom_characters) {
+        if (options.custom_characters.empty()) {
+            std::cerr << "Error: custom characters must not be empty" << std::endl;
+            return false;
+        }
+        alphabet = options.custom_characters;
+    } else {
+        if (options.include_uppercase) {
+            alphabet += "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        }
+        if (options.include_lowercase) {
+            alphabet += "abcdefghijklmnopqrstuvwxyz";
+        }
+        if (options.include_digits) {
+            alphabet += "0123456789";
+        }
+        if (options.include_special) {
+            alphabet += "!@#$%^&*()_+={}[]|:;<>,.?/~";
+        }
+    }
+
+    if (alphabet.empty()) {
+        std::cerr << "Error: character set is empty" << std::endl;
+        return false;
+    }
+
+    PDFEncryptInfo encrypt_info;
+    if (!read_pdf_encrypt_info(pdf_path, encrypt_info)) {
+        return false;
+    }
+
+    if (encrypt_info.revision < 5) {
+        std::cerr << "Error: Only AES-256 (Revision 5/6) PDFs are supported by this retriever." << std::endl;
+        return false;
+    }
+
+    if (thread_count == 0) {
+        thread_count = std::thread::hardware_concurrency();
+        if (thread_count == 0) {
+            thread_count = 2;
+        }
+    }
+    thread_count = std::min<unsigned int>(thread_count, 16);
+    thread_count = std::max(thread_count, 1u);
+
+    std::cout << "\nStarting brute-force password search with " << thread_count << " threads" << std::endl;
+
+    struct Task {
+        std::string prefix;
+        std::size_t target_length = 0;
+    };
+
+    std::vector<Task> tasks;
+    std::size_t base_prefix_length = std::min<std::size_t>(options.min_length, static_cast<std::size_t>(2));
+    if (base_prefix_length == 0) {
+        base_prefix_length = 1;
+    }
+
+    std::string current_prefix;
+    auto add_tasks_for_length = [&](std::size_t length) {
+        std::size_t prefix_length = std::min<std::size_t>(length, base_prefix_length);
+        current_prefix.clear();
+        current_prefix.reserve(prefix_length);
+        if (prefix_length == 0) {
+            tasks.push_back(Task{std::string(), length});
+            return;
+        }
+
+        std::function<void(std::size_t)> dfs = [&](std::size_t depth) {
+            if (depth == prefix_length) {
+                tasks.push_back(Task{current_prefix, length});
+                return;
+            }
+            for (char ch : alphabet) {
+                current_prefix.push_back(ch);
+                dfs(depth + 1);
+                current_prefix.pop_back();
+            }
+        };
+        dfs(0);
+    };
+
+    for (std::size_t length = options.min_length; length <= options.max_length; ++length) {
+        add_tasks_for_length(length);
+    }
+
+    std::atomic<bool> password_found{false};
+    std::atomic<std::uint64_t> passwords_tried{0};
+    std::mutex result_mutex;
+    std::string found_password;
+    std::string found_variant;
+
+    auto start_time = std::chrono::steady_clock::now();
+
+    std::atomic<std::size_t> next_task{0};
+
+    auto attempt_password = [&](const std::string& candidate) -> bool {
+        if (password_found.load()) {
+            return true;
+        }
+
+        std::string variant;
+        if (check_password_variants(candidate, encrypt_info, variant)) {
+            std::lock_guard<std::mutex> lock(result_mutex);
+            if (!password_found.load()) {
+                password_found = true;
+                found_password = candidate;
+                found_variant = variant;
+                std::cout << "\nPASSWORD FOUND [" << variant << "]: " << candidate << std::endl;
+            }
+            return true;
+        }
+
+        std::uint64_t tried = ++passwords_tried;
+        if (tried % 1000 == 0) {
+            print_progress(static_cast<std::size_t>(tried), 0);
+        }
+        return false;
+    };
+
+    auto extend_password = [&](auto& self, std::string& current, std::size_t target_length) -> bool {
+        if (password_found.load()) {
+            return true;
+        }
+
+        if (current.size() == target_length) {
+            return attempt_password(current);
+        }
+
+        for (char ch : alphabet) {
+            current.push_back(ch);
+            if (self(self, current, target_length)) {
+                current.pop_back();
+                return true;
+            }
+            current.pop_back();
+            if (password_found.load()) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    auto worker = [&]() {
+        while (!password_found.load()) {
+            std::size_t index = next_task.fetch_add(1);
+            if (index >= tasks.size()) {
+                break;
+            }
+
+            const Task& task = tasks[index];
+            std::string current = task.prefix;
+            if (current.size() > task.target_length) {
+                continue;
+            }
+            extend_password(extend_password, current, task.target_length);
+        }
+    };
+
+    std::vector<std::thread> threads;
+    threads.reserve(thread_count);
+    for (unsigned int i = 0; i < thread_count; ++i) {
+        threads.emplace_back(worker);
+    }
+
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    auto end_time = std::chrono::steady_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time);
+
+    std::cout << "\n\nFinished in " << duration.count() << " seconds" << std::endl;
+
+    result.passwords_tried = static_cast<std::size_t>(passwords_tried.load());
+    result.total_passwords = 0;
+    result.success = password_found.load();
+    if (result.success) {
+        result.password = found_password;
+        result.variant = found_variant;
+        std::cout << "Password found: " << found_password << std::endl;
+    } else {
+        std::cout << "Password not found in generated range" << std::endl;
     }
 
     return true;
