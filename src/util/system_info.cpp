@@ -9,6 +9,7 @@
 #include <thread>
 
 #if defined(_WIN32)
+#include <winsock2.h>
 #include <windows.h>
 #include <winreg.h>
 #elif defined(__APPLE__)
@@ -193,11 +194,20 @@ std::string detect_architecture() {
 }
 
 std::string detect_hostname() {
+#if defined(_WIN32)
+    std::array<char, 256> buffer{};
+    DWORD size = static_cast<DWORD>(buffer.size());
+    if (GetComputerNameA(buffer.data(), &size)) {
+        return std::string(buffer.data(), size);
+    }
+    return "Unknown";
+#else
     std::array<char, 256> buffer{};
     if (gethostname(buffer.data(), buffer.size()) == 0) {
         return std::string(buffer.data());
     }
     return "Unknown";
+#endif
 }
 
 }  // namespace
