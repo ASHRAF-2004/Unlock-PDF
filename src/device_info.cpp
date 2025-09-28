@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cctype>
 #include <cstdint>
@@ -62,29 +63,37 @@ BenchmarkResult run_benchmark(std::size_t length, std::size_t attempts, const st
         return BenchmarkResult{length, attempts, 0.0, 0.0};
     }
 
-    std::string candidate(length, charset.front());
     const std::size_t charset_size = charset.size();
-    std::hash<std::string> hasher;
-    std::vector<unsigned char> buffer;
-    buffer.reserve(length);
-    std::vector<unsigned char> digest;
-    digest.reserve(32);
+    const char first_char = charset.front();
+    const char* charset_data = charset.data();
+    std::string candidate(length, first_char);
+    std::vector<std::size_t> indices(length, 0);
+    std::hash<std::string_view> hasher;
+    std::string_view candidate_view(candidate);
+    const unsigned char* candidate_bytes = reinterpret_cast<const unsigned char*>(candidate_view.data());
+    std::array<unsigned char, 32> digest{};
 
     volatile std::size_t sink = 0;
     auto start = std::chrono::steady_clock::now();
     for (std::size_t attempt = 0; attempt < attempts; ++attempt) {
-        std::size_t value = attempt;
-        for (std::size_t pos = 0; pos < length; ++pos) {
-            candidate[pos] = charset[value % charset_size];
-            value /= charset_size;
+        if (use_sha256) {
+            unlock_pdf::crypto::sha256_digest(candidate_bytes, candidate_view.size(), digest.data());
+            sink = static_cast<std::size_t>(digest.front());
+        } else {
+            sink = hasher(candidate_view);
         }
 
-        if (use_sha256) {
-            buffer.assign(candidate.begin(), candidate.end());
-            digest = unlock_pdf::crypto::sha256_bytes(buffer);
-            sink = digest.empty() ? 0 : digest.front();
-        } else {
-            sink = hasher(candidate);
+        std::size_t pos = 0;
+        while (pos < length) {
+            std::size_t next_index = indices[pos] + 1;
+            if (next_index < charset_size) {
+                indices[pos] = next_index;
+                candidate[pos] = charset_data[next_index];
+                break;
+            }
+            indices[pos] = 0;
+            candidate[pos] = first_char;
+            ++pos;
         }
     }
     auto end = std::chrono::steady_clock::now();

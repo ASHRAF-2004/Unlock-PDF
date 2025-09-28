@@ -316,6 +316,17 @@ std::vector<unsigned char> sha256_bytes(const std::vector<unsigned char>& data) 
     return hash;
 }
 
+void sha256_digest(const unsigned char* data, std::size_t len, unsigned char* out) {
+    if (out == nullptr) {
+        return;
+    }
+    SHA256 ctx;
+    if (data != nullptr && len != 0) {
+        ctx.update(data, len);
+    }
+    ctx.finalize(out);
+}
+
 std::vector<unsigned char> sha2_hash(const std::vector<unsigned char>& data, std::size_t bits) {
     if (bits == 256) {
         return sha256_bytes(data);
