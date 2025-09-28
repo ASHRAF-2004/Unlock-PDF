@@ -15,6 +15,10 @@ set "CLEAN_BUILD=1"
 set "EXIT_CODE=0"
 set "EXTRA_ARGS="
 set "NOPAUSE=0"
+set "INCLUDE_UPPERCASE="
+set "INCLUDE_LOWERCASE="
+set "INCLUDE_DIGITS="
+set "INCLUDE_SPECIAL="
 
 set "THREADS=%NUMBER_OF_PROCESSORS%"
 if not defined THREADS set "THREADS=0"
@@ -120,6 +124,82 @@ if /I "%~1"=="--max-length" (
     shift
     goto parse_args
 )
+if /I "%~1"=="--include-uppercase" (
+    shift
+    if "%~1"=="" (
+        echo Missing value for --include-uppercase
+        set "EXIT_CODE=1"
+        goto cleanup
+    )
+    if /I "%~1"=="true" (
+        set "INCLUDE_UPPERCASE=true"
+    ) else if /I "%~1"=="false" (
+        set "INCLUDE_UPPERCASE=false"
+    ) else (
+        echo Invalid boolean value for --include-uppercase. Use true or false.
+        set "EXIT_CODE=1"
+        goto cleanup
+    )
+    shift
+    goto parse_args
+)
+if /I "%~1"=="--include-lowercase" (
+    shift
+    if "%~1"=="" (
+        echo Missing value for --include-lowercase
+        set "EXIT_CODE=1"
+        goto cleanup
+    )
+    if /I "%~1"=="true" (
+        set "INCLUDE_LOWERCASE=true"
+    ) else if /I "%~1"=="false" (
+        set "INCLUDE_LOWERCASE=false"
+    ) else (
+        echo Invalid boolean value for --include-lowercase. Use true or false.
+        set "EXIT_CODE=1"
+        goto cleanup
+    )
+    shift
+    goto parse_args
+)
+if /I "%~1"=="--include-digits" (
+    shift
+    if "%~1"=="" (
+        echo Missing value for --include-digits
+        set "EXIT_CODE=1"
+        goto cleanup
+    )
+    if /I "%~1"=="true" (
+        set "INCLUDE_DIGITS=true"
+    ) else if /I "%~1"=="false" (
+        set "INCLUDE_DIGITS=false"
+    ) else (
+        echo Invalid boolean value for --include-digits. Use true or false.
+        set "EXIT_CODE=1"
+        goto cleanup
+    )
+    shift
+    goto parse_args
+)
+if /I "%~1"=="--include-special" (
+    shift
+    if "%~1"=="" (
+        echo Missing value for --include-special
+        set "EXIT_CODE=1"
+        goto cleanup
+    )
+    if /I "%~1"=="true" (
+        set "INCLUDE_SPECIAL=true"
+    ) else if /I "%~1"=="false" (
+        set "INCLUDE_SPECIAL=false"
+    ) else (
+        echo Invalid boolean value for --include-special. Use true or false.
+        set "EXIT_CODE=1"
+        goto cleanup
+    )
+    shift
+    goto parse_args
+)
 if /I "%~1"=="--build-dir" (
     shift
     if "%~1"=="" (
@@ -205,6 +285,34 @@ set RUN_ARGS=--threads %THREADS% --pdf "%PDF%"
 if defined WORDLIST set RUN_ARGS=%RUN_ARGS% --wordlist "%WORDLIST%"
 if defined MIN_LENGTH set RUN_ARGS=%RUN_ARGS% --min-length %MIN_LENGTH%
 if defined MAX_LENGTH set RUN_ARGS=%RUN_ARGS% --max-length %MAX_LENGTH%
+if defined INCLUDE_UPPERCASE (
+    if /I "%INCLUDE_UPPERCASE%"=="true" (
+        set RUN_ARGS=%RUN_ARGS% --include-uppercase
+    ) else (
+        set RUN_ARGS=%RUN_ARGS% --exclude-uppercase
+    )
+)
+if defined INCLUDE_LOWERCASE (
+    if /I "%INCLUDE_LOWERCASE%"=="true" (
+        set RUN_ARGS=%RUN_ARGS% --include-lowercase
+    ) else (
+        set RUN_ARGS=%RUN_ARGS% --exclude-lowercase
+    )
+)
+if defined INCLUDE_DIGITS (
+    if /I "%INCLUDE_DIGITS%"=="true" (
+        set RUN_ARGS=%RUN_ARGS% --include-digits
+    ) else (
+        set RUN_ARGS=%RUN_ARGS% --exclude-digits
+    )
+)
+if defined INCLUDE_SPECIAL (
+    if /I "%INCLUDE_SPECIAL%"=="true" (
+        set RUN_ARGS=%RUN_ARGS% --include-special
+    ) else (
+        set RUN_ARGS=%RUN_ARGS% --exclude-special
+    )
+)
 if defined EXTRA_ARGS set RUN_ARGS=%RUN_ARGS% %EXTRA_ARGS%
 
 echo.
