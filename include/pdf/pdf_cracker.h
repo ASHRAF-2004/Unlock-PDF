@@ -23,6 +23,11 @@ bool crack_pdf(const std::vector<std::string>& passwords,
                CrackResult& result,
                unsigned int thread_count = 0);
 
+bool crack_pdf_from_file(const std::string& wordlist_path,
+                         const std::string& pdf_path,
+                         CrackResult& result,
+                         unsigned int thread_count = 0);
+
 bool crack_pdf_bruteforce(const unlock_pdf::util::WordlistOptions& options,
                           const std::string& pdf_path,
                           CrackResult& result,
