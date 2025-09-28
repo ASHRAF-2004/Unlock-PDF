@@ -3,7 +3,6 @@
 
 #include <cstddef>
 #include <string>
-#include <vector>
 
 namespace unlock_pdf::util {
 
@@ -17,16 +16,6 @@ struct WordlistOptions {
     bool use_custom_characters = false;
     std::string custom_characters;
 };
-
-struct WordlistSummary {
-    std::size_t total_passwords = 0;
-    bool overflowed = false;
-    std::string total_passwords_text;
-};
-
-WordlistSummary generate_wordlist(const WordlistOptions& options,
-                                  const std::string& output_path,
-                                  std::vector<std::string>* generated = nullptr);
 
 }  // namespace unlock_pdf::util
 

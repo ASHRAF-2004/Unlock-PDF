@@ -4,12 +4,17 @@
 #include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <locale>
 #include <mutex>
-#include <thread>
-#include <vector>
+#include <stdexcept>
 #include <string>
+#include <thread>
+#include <utility>
+#include <vector>
+#include <codecvt>
 
 #include "pdf/encryption/encryption_handler_registry.h"
 #include "pdf/pdf_parser.h"
@@ -79,14 +84,160 @@ std::vector<const EncryptionHandler*> collect_password_handlers(const PDFEncrypt
     return password_handlers;
 }
 
-}  // namespace
+class PasswordSource {
+   public:
+    virtual ~PasswordSource() = default;
+    virtual bool next(std::string& password) = 0;
+    virtual bool has_total() const { return false; }
+    virtual std::size_t total() const { return 0; }
+};
 
-bool crack_pdf(const std::vector<std::string>& passwords,
-               const std::string& pdf_path,
-               CrackResult& result,
-               unsigned int thread_count) {
+class VectorPasswordSource final : public PasswordSource {
+   public:
+    explicit VectorPasswordSource(const std::vector<std::string>& passwords) : passwords_(passwords) {}
+
+    bool next(std::string& password) override {
+        std::size_t index = index_.fetch_add(1, std::memory_order_relaxed);
+        if (index >= passwords_.size()) {
+            return false;
+        }
+        password = passwords_[index];
+        return true;
+    }
+
+    bool has_total() const override { return true; }
+    std::size_t total() const override { return passwords_.size(); }
+
+   private:
+    const std::vector<std::string>& passwords_;
+    std::atomic<std::size_t> index_{0};
+};
+
+class FilePasswordSource final : public PasswordSource {
+   public:
+    explicit FilePasswordSource(const std::string& path) : stream_(path, std::ios::binary) {
+        if (!stream_) {
+            throw std::runtime_error("unable to open wordlist: " + path);
+        }
+
+        unsigned char bom[3] = {0, 0, 0};
+        stream_.read(reinterpret_cast<char*>(bom), sizeof(bom));
+        std::streamsize read_bytes = stream_.gcount();
+        std::size_t skip = 0;
+
+        if (read_bytes >= 2 && bom[0] == 0xFF && bom[1] == 0xFE) {
+            encoding_ = Encoding::Utf16LE;
+            skip = 2;
+        } else if (read_bytes >= 2 && bom[0] == 0xFE && bom[1] == 0xFF) {
+            encoding_ = Encoding::Utf16BE;
+            skip = 2;
+        } else if (read_bytes >= 3 && bom[0] == 0xEF && bom[1] == 0xBB && bom[2] == 0xBF) {
+            encoding_ = Encoding::Utf8;
+            skip = 3;
+        } else {
+            encoding_ = Encoding::Utf8;
+            skip = 0;
+        }
+
+        stream_.clear();
+        stream_.seekg(static_cast<std::streamoff>(skip), std::ios::beg);
+    }
+
+    bool next(std::string& password) override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!stream_) {
+            return false;
+        }
+
+        std::string line;
+        while (true) {
+            bool ok = false;
+            if (encoding_ == Encoding::Utf8) {
+                ok = read_utf8_line(line);
+            } else {
+                ok = read_utf16_line(line);
+            }
+
+            if (!ok) {
+                return false;
+            }
+
+            if (!line.empty()) {
+                password = std::move(line);
+                return true;
+            }
+        }
+    }
+
+   private:
+    enum class Encoding { Utf8, Utf16LE, Utf16BE };
+
+    bool read_utf8_line(std::string& out) {
+        std::string line;
+        if (!std::getline(stream_, line)) {
+            return false;
+        }
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+        out = std::move(line);
+        return true;
+    }
+
+    bool read_utf16_line(std::string& out) {
+        std::u16string buffer;
+        bool read_any = false;
+        while (true) {
+            char bytes[2];
+            stream_.read(bytes, 2);
+            std::streamsize got = stream_.gcount();
+            if (got == 0) {
+                break;
+            }
+            if (got < 2) {
+                return false;
+            }
+            read_any = true;
+            char16_t code = 0;
+            if (encoding_ == Encoding::Utf16LE) {
+                code = static_cast<unsigned char>(bytes[0]) |
+                       (static_cast<char16_t>(static_cast<unsigned char>(bytes[1])) << 8);
+            } else {
+                code = (static_cast<char16_t>(static_cast<unsigned char>(bytes[0])) << 8) |
+                       static_cast<unsigned char>(bytes[1]);
+            }
+
+            if (code == u'\n') {
+                break;
+            }
+            if (code == u'\r') {
+                continue;
+            }
+            buffer.push_back(code);
+        }
+
+        if (!read_any && buffer.empty()) {
+            return false;
+        }
+
+        std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> converter;
+        out = converter.to_bytes(buffer);
+        return true;
+    }
+
+    std::ifstream stream_;
+    Encoding encoding_ = Encoding::Utf8;
+    std::mutex mutex_;
+};
+
+bool crack_with_source(PasswordSource& source,
+                       const std::string& pdf_path,
+                       CrackResult& result,
+                       unsigned int thread_count) {
     result = CrackResult{};
-    result.total_passwords = passwords.size();
+    if (source.has_total()) {
+        result.total_passwords = source.total();
+    }
 
     PDFEncryptInfo encrypt_info;
     if (!read_pdf_encrypt_info(pdf_path, encrypt_info)) {
@@ -104,11 +255,6 @@ bool crack_pdf(const std::vector<std::string>& passwords,
         return false;
     }
 
-    if (passwords.empty()) {
-        std::cerr << "Error: password list is empty" << std::endl;
-        return false;
-    }
-
     if (thread_count == 0) {
         thread_count = std::thread::hardware_concurrency();
         if (thread_count == 0) {
@@ -116,9 +262,13 @@ bool crack_pdf(const std::vector<std::string>& passwords,
         }
     }
     thread_count = std::min<unsigned int>(thread_count, 16);
-    if (thread_count > passwords.size()) {
-        thread_count = static_cast<unsigned int>(passwords.size());
-        thread_count = std::max(thread_count, 1u);
+    thread_count = std::max(thread_count, 1u);
+    if (source.has_total()) {
+        std::size_t total = source.total();
+        if (total > 0 && static_cast<std::size_t>(thread_count) > total) {
+            thread_count = static_cast<unsigned int>(total);
+            thread_count = std::max(thread_count, 1u);
+        }
     }
 
     std::cout << "\nStarting password cracking with " << thread_count << " threads" << std::endl;
@@ -131,59 +281,95 @@ bool crack_pdf(const std::vector<std::string>& passwords,
 
     auto start_time = std::chrono::steady_clock::now();
 
-    std::vector<std::thread> threads;
-    std::size_t per_thread = passwords.size() / thread_count;
-    std::size_t remainder = passwords.size() % thread_count;
-    std::size_t current_start = 0;
-
-    auto worker = [&](std::size_t start, std::size_t end) {
-        for (std::size_t i = start; i < end && !password_found.load(); ++i) {
-            std::string variant;
-            if (check_password_variants(passwords[i], encrypt_info, password_handlers, variant)) {
-                std::lock_guard<std::mutex> lock(result_mutex);
-                if (!password_found) {
-                    password_found = true;
-                    found_password = passwords[i];
-                    found_variant = variant;
-                    std::cout << "\nPASSWORD FOUND [" << variant << "]: " << passwords[i] << std::endl;
-                }
-                return;
+    auto worker = [&]() {
+        while (true) {
+            if (password_found.load(std::memory_order_relaxed)) {
+                break;
             }
 
-            std::size_t tried = ++passwords_tried;
-            if (tried % 100 == 0) {
-                print_progress(tried, passwords.size());
+            std::string password;
+            if (!source.next(password)) {
+                break;
+            }
+
+            std::size_t attempt = passwords_tried.fetch_add(1, std::memory_order_relaxed) + 1;
+
+            if (password_found.load(std::memory_order_acquire)) {
+                break;
+            }
+
+            std::string variant;
+            if (check_password_variants(password, encrypt_info, password_handlers, variant)) {
+                std::lock_guard<std::mutex> lock(result_mutex);
+                if (!password_found.load(std::memory_order_relaxed)) {
+                    password_found.store(true, std::memory_order_release);
+                    found_password = std::move(password);
+                    found_variant = std::move(variant);
+                    std::cout << "\nPASSWORD FOUND [" << found_variant << "]: " << found_password << std::endl;
+                }
+                break;
+            }
+
+            if (attempt % 100 == 0) {
+                print_progress(attempt, result.total_passwords);
             }
         }
     };
 
+    std::vector<std::thread> threads;
+    threads.reserve(thread_count);
     for (unsigned int i = 0; i < thread_count; ++i) {
-        std::size_t count = per_thread + (i < remainder ? 1 : 0);
-        std::size_t end = current_start + count;
-        threads.emplace_back(worker, current_start, end);
-        current_start = end;
+        threads.emplace_back(worker);
     }
 
     for (auto& thread : threads) {
         thread.join();
     }
 
+    std::size_t attempted = passwords_tried.load(std::memory_order_relaxed);
+    std::cout << std::endl;
+
     auto end_time = std::chrono::steady_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time);
+    std::cout << "\nFinished in " << duration.count() << " seconds" << std::endl;
 
-    std::cout << "\n\nFinished in " << duration.count() << " seconds" << std::endl;
-
-    result.passwords_tried = passwords_tried.load();
-    result.success = password_found.load();
+    result.passwords_tried = attempted;
+    if (result.total_passwords == 0 || result.total_passwords < attempted) {
+        result.total_passwords = attempted;
+    }
+    result.success = password_found.load(std::memory_order_relaxed);
     if (result.success) {
         result.password = found_password;
         result.variant = found_variant;
-        std::cout << "Password found: " << found_password << std::endl;
+        std::cout << "Password found: " << result.password << std::endl;
     } else {
         std::cout << "Password not found in the provided list" << std::endl;
     }
 
     return true;
+}
+
+}  // namespace
+
+bool crack_pdf(const std::vector<std::string>& passwords,
+               const std::string& pdf_path,
+               CrackResult& result,
+               unsigned int thread_count) {
+    if (passwords.empty()) {
+        std::cerr << "Error: password list is empty" << std::endl;
+        return false;
+    }
+
+    VectorPasswordSource source(passwords);
+    return crack_with_source(source, pdf_path, result, thread_count);
+}
+
+bool crack_pdf_from_file(const std::string& wordlist_path,
+                         const std::string& pdf_path,
+                         CrackResult& result,
+                         unsigned int thread_count) {
+    FilePasswordSource source(wordlist_path);
+    return crack_with_source(source, pdf_path, result, thread_count);
 }
 
 bool crack_pdf_bruteforce(const unlock_pdf::util::WordlistOptions& options,
