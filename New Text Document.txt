@@ -1,8 +1,0 @@
-build\Release\pdf_password_retriever.exe ^
-    --pdf "C:\Users\ASHRAF ALI\Desktop\Unlock-PDF\Test1.pdf" ^
-    --generate-wordlist "%TEMP%\on_the_fly_passwords.txt" ^
-    --min-length 10 ^
-    --max-length 10 ^
-    --include-lowercase ^
-    --include-digits ^
-    --include-uppercase

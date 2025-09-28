@@ -1,0 +1,3 @@
+cmake -S . -B build -A x64
+cmake --build build --config Release
+.\build\Release\pdf_password_retriever.exe --pdf file.pdf --min-length 6 --max-length 6 --include-uppercase
