@@ -201,17 +201,17 @@ if not exist "%EXEC%" (
 if %THREADS% LSS 1 set "THREADS=1"
 if %THREADS% GTR 16 set "THREADS=16"
 
-set "RUN_ARGS=--threads %THREADS% --pdf ^"%PDF%^""
-if defined WORDLIST set "RUN_ARGS=!RUN_ARGS! --wordlist ^"%WORDLIST%^""
-if defined MIN_LENGTH set "RUN_ARGS=!RUN_ARGS! --min-length %MIN_LENGTH%"
-if defined MAX_LENGTH set "RUN_ARGS=!RUN_ARGS! --max-length %MAX_LENGTH%"
-if defined EXTRA_ARGS set "RUN_ARGS=!RUN_ARGS! %EXTRA_ARGS%"
+set RUN_ARGS=--threads %THREADS% --pdf "%PDF%"
+if defined WORDLIST set RUN_ARGS=%RUN_ARGS% --wordlist "%WORDLIST%"
+if defined MIN_LENGTH set RUN_ARGS=%RUN_ARGS% --min-length %MIN_LENGTH%
+if defined MAX_LENGTH set RUN_ARGS=%RUN_ARGS% --max-length %MAX_LENGTH%
+if defined EXTRA_ARGS set RUN_ARGS=%RUN_ARGS% %EXTRA_ARGS%
 
 echo.
 echo Launching %TARGET%.exe with %THREADS% thread^(s^):
-echo    !RUN_ARGS!
+echo    %RUN_ARGS%
 echo.
-"%EXEC%" !RUN_ARGS!
+call "%EXEC%" %RUN_ARGS%
 set "EXIT_CODE=%ERRORLEVEL%"
 
 echo.
