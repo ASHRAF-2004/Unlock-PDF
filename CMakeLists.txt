@@ -30,3 +30,12 @@ add_executable(pdf_password_retriever
 target_include_directories(pdf_password_retriever PRIVATE include)
 
 target_compile_definitions(pdf_password_retriever PRIVATE _CRT_SECURE_NO_WARNINGS)
+
+add_executable(device_probe
+    src/device_info.cpp
+    src/util/system_info.cpp
+    src/crypto/sha2.cpp)
+
+target_include_directories(device_probe PRIVATE include)
+
+target_compile_definitions(device_probe PRIVATE _CRT_SECURE_NO_WARNINGS)
