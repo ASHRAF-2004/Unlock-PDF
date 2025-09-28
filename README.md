@@ -63,6 +63,15 @@ You can omit the `--wordlist` flag to generate candidate passwords on the fly. A
 ```
 By default the generator uses uppercase, lowercase, digits, and common special characters with a length range of 6–32. Large searches can take significant time; refine the options whenever possible.
 
+## Maximizing Throughput
+The brute-force engine is CPU-bound. On a single hardware thread you should expect roughly 20 guesses per second. To get the highest speed your device can provide:
+
+- **Use an optimized build.** Always compile the Release configuration so the compiler enables all optimizations. The commands in the build sections above (`cmake -S . -B build -DCMAKE_BUILD_TYPE=Release` followed by `cmake --build build`) produce the tuned binary.
+- **Increase the worker pool.** The executable accepts `--threads <n>` and auto-detects the CPU by default. If detection falls back to a low count (e.g., 2 threads), explicitly set `--threads 8` or `--threads 16` to let more cores run in parallel.
+- **Constrain the search space.** Every extra character class or longer length multiplies the combinations. Use the `--min-length`, `--max-length`, and alphabet toggles (`--include-*`, `--exclude-*`, `--custom-chars`, `--use-custom-only`) to focus on likely candidates.
+- **Prefer targeted lists.** Even a modest, curated wordlist runs through the multithreaded pipeline and typically completes far sooner than brute-forcing millions of random permutations.
+- **Scale with hardware when needed.** After saturating 16 threads and narrowing the candidate space, the only lever left is faster CPUs—this implementation does not support GPU acceleration.
+
 ## PDF Metadata Inspection
 The tool automatically parses encryption metadata while attempting passwords. If you only need to inspect a PDF without cracking it, run:
 ```bash
