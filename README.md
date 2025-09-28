@@ -118,6 +118,25 @@ The brute-force engine is CPU-bound. On a single hardware thread you should expe
 - **Prefer targeted lists.** Even a modest, curated wordlist runs through the multithreaded pipeline and typically completes far sooner than brute-forcing millions of random permutations.
 - **Scale with hardware when needed.** After saturating 16 threads and narrowing the candidate space, the only lever left is faster CPUs—this implementation does not support GPU acceleration.
 
+## Graphical Interface
+
+If you prefer a point-and-click workflow, a Tkinter-based launcher is available at `gui/unlock_pdf_gui.py`. The utility wraps the
+`pdf_password_retriever` executable and exposes the most common options through a desktop interface.
+
+1. Build the CLI executable as described above so that `build/pdf_password_retriever` (or `build/pdf_password_retriever.exe` on
+   Windows) exists.
+2. Start the GUI with Python 3:
+
+   ```bash
+   python3 gui/unlock_pdf_gui.py
+   ```
+
+3. Use the "Browse" buttons to choose the executable, encrypted PDF, and optional wordlist.
+4. Adjust the password generation options, then click **Run Crack** or **Get PDF Info** to launch the command.
+
+The GUI streams the CLI output in real time and lets you stop the process if needed. Tkinter ships with most Python distributions;
+if it is missing, install the appropriate `python3-tk` package for your platform.
+
 ## PDF Metadata Inspection
 The tool automatically parses encryption metadata while attempting passwords. If you only need to inspect a PDF without cracking it, run:
 ```bash
