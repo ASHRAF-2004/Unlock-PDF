@@ -72,6 +72,19 @@ Run the helper from an existing Command Prompt/PowerShell session or double-clic
   - `--build-dir <dir>` – use a custom build folder.
   - `--debug` – configure a Debug build instead of Release.
 
+### Windows (`full_speed_build_and_run.bat`)
+```powershell
+full_speed_build_and_run.bat --pdf secret.pdf [--wordlist rockyou.txt] [--threads 12]
+```
+- Always configures and compiles a **Release** build for maximum CPU throughput.
+- Cleans the build directory (default: `build`) before configuring to avoid generator/platform mismatches. Pass `--no-clean` if you want to reuse an existing build tree.
+- Auto-detects your logical core count (capped at 16 threads) and passes it to the cracker. Override with `--threads <n>`.
+- Supports the common CLI options directly: `--pdf`, `--wordlist`, `--min-length`, `--max-length`, `--threads`, and `--build-dir`.
+- Forward any other cracker flags by appending `--` followed by the desired arguments, for example:
+  ```powershell
+  full_speed_build_and_run.bat --pdf secret.pdf -- --include-digits --include-lowercase --min-length 6 --max-length 8
+  ```
+
 ### Linux (`build_and_run_linux.sh`)
 ```bash
 ./build_and_run_linux.sh
