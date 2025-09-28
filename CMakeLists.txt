@@ -39,3 +39,7 @@ add_executable(device_probe
 target_include_directories(device_probe PRIVATE include)
 
 target_compile_definitions(device_probe PRIVATE _CRT_SECURE_NO_WARNINGS)
+
+if (WIN32)
+    target_link_libraries(device_probe PRIVATE ws2_32)
+endif()
