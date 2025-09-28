@@ -25,6 +25,29 @@ The Release binary will be generated at `build/Release/pdf_password_retriever.ex
 ./build/Release/pdf_password_retriever.exe --pdf secret.pdf --wordlist passwords.txt
 ```
 
+## Hardware & Benchmark Utility
+The repository also ships with `device_probe`, a helper that prints basic system information and runs a configurable brute-force
+throughput benchmark. Build it alongside the main tool:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --target device_probe
+```
+
+Run the probe with optional flags to tweak the workload:
+
+```bash
+./build/device_probe --lengths 6,8,10 --attempts 750000 --hash sha256 --include-special
+```
+
+Key options:
+
+- `--lengths <list>` – Comma separated password lengths to benchmark.
+- `--attempts <n>` – Attempts per length (default: 500000).
+- `--hash <mode>` – `none` (fast hash) or `sha256` for a heavier workload.
+- `--include-special` – Adds printable punctuation to the default character set.
+- `--custom <chars>` – Provide an explicit character set for testing.
+
 ## One-Click Helper Scripts
 
 ### Windows (`build_and_run.bat`)
