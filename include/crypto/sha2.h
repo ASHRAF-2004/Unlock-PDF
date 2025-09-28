@@ -7,6 +7,7 @@
 namespace unlock_pdf::crypto {
 
 std::vector<unsigned char> sha256_bytes(const std::vector<unsigned char>& data);
+void sha256_digest(const unsigned char* data, std::size_t len, unsigned char* out);
 std::vector<unsigned char> sha2_hash(const std::vector<unsigned char>& data, std::size_t bits);
 
 }  // namespace unlock_pdf::crypto
