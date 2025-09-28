@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "pdf/pdf_cracker.h"
+#include "pdf/pdf_parser.h"
 #include "util/wordlist_generator.h"
 
 namespace {
@@ -17,6 +18,7 @@ namespace {
 void print_usage(const char* program) {
     std::cout << "Usage: " << program << " [options]\n\n"
               << "PDF Password Retriever options:\n"
+              << "  --info <path>              Print PDF encryption details and exit\n"
               << "  --pdf <path>                Path to the encrypted PDF file\n"
               << "  --wordlist <path>           Path to a password wordlist file\n"
               << "  --threads <n>               Number of worker threads (default: auto)\n\n"
@@ -123,6 +125,7 @@ int main(int argc, char* argv[]) {
     word_options.max_length = 32;
 
     std::string pdf_path;
+    bool info_only = false;
     std::string wordlist_path;
     std::string generation_path;
     unsigned int thread_count = 0;
@@ -139,6 +142,9 @@ int main(int argc, char* argv[]) {
         if (arg == "--help" || arg == "-h") {
             print_usage(argv[0]);
             return 0;
+        } else if (arg == "--info") {
+            pdf_path = require_value(arg);
+            info_only = true;
         } else if (arg == "--pdf") {
             pdf_path = require_value(arg);
         } else if (arg == "--wordlist") {
@@ -182,6 +188,18 @@ int main(int argc, char* argv[]) {
     }
 
     try {
+        if (info_only) {
+            if (pdf_path.empty()) {
+                std::cerr << "Error: no PDF path provided for --info" << std::endl;
+                return 1;
+            }
+            unlock_pdf::pdf::PDFEncryptInfo info;
+            if (!unlock_pdf::pdf::read_pdf_encrypt_info(pdf_path, info)) {
+                return 1;
+            }
+            return 0;
+        }
+
         if (!generation_path.empty()) {
             auto summary = unlock_pdf::util::generate_wordlist(word_options, generation_path);
             std::cout << "Wordlist written to " << generation_path << " (" << summary.total_passwords_text
