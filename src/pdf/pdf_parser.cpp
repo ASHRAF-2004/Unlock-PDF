@@ -27,6 +27,21 @@ void skip_whitespace_and_comments(const std::string& data, std::size_t& pos) {
     }
 }
 
+bool parse_pdf_boolean(const std::string& data, std::size_t& pos, bool& value) {
+    skip_whitespace_and_comments(data, pos);
+    if (pos + 4 <= data.size() && data.compare(pos, 4, "true") == 0) {
+        pos += 4;
+        value = true;
+        return true;
+    }
+    if (pos + 5 <= data.size() && data.compare(pos, 5, "false") == 0) {
+        pos += 5;
+        value = false;
+        return true;
+    }
+    return false;
+}
+
 int parse_pdf_int(const std::string& data, std::size_t& pos) {
     skip_whitespace_and_comments(data, pos);
     if (pos >= data.size()) {
@@ -285,7 +300,9 @@ bool extract_encryption_info(const std::string& data, PDFEncryptInfo& info) {
     std::size_t encrypt_pos = data.find("/Encrypt");
     if (encrypt_pos == std::string::npos) {
         std::cout << "No /Encrypt dictionary found" << std::endl;
-        return false;
+        info = PDFEncryptInfo{};
+        info.encrypted = false;
+        return true;
     }
 
     std::size_t pos = encrypt_pos + 8;
@@ -351,6 +368,8 @@ bool extract_encryption_info(const std::string& data, PDFEncryptInfo& info) {
             info.revision = parse_pdf_int(data, pos);
         } else if (key == "Length") {
             info.length = parse_pdf_int(data, pos);
+        } else if (key == "P") {
+            info.permissions = parse_pdf_int(data, pos);
         } else if (key == "U") {
             info.u_string = parse_pdf_string_object(data, pos);
         } else if (key == "O") {
@@ -361,6 +380,66 @@ bool extract_encryption_info(const std::string& data, PDFEncryptInfo& info) {
             info.oe_string = parse_pdf_string_object(data, pos);
         } else if (key == "Perms") {
             info.perms = parse_pdf_string_object(data, pos);
+        } else if (key == "Filter") {
+            if (pos < dict_end && data[pos] == '/') {
+                ++pos;
+                info.filter = parse_pdf_name(data, pos);
+            }
+        } else if (key == "SubFilter") {
+            if (pos < dict_end && data[pos] == '/') {
+                ++pos;
+                info.sub_filter = parse_pdf_name(data, pos);
+            }
+        } else if (key == "StmF") {
+            if (pos < dict_end && data[pos] == '/') {
+                ++pos;
+                info.stream_filter = parse_pdf_name(data, pos);
+            }
+        } else if (key == "StrF") {
+            if (pos < dict_end && data[pos] == '/') {
+                ++pos;
+                info.string_filter = parse_pdf_name(data, pos);
+            }
+        } else if (key == "EFF") {
+            if (pos < dict_end && data[pos] == '/') {
+                ++pos;
+                info.ef_filter = parse_pdf_name(data, pos);
+            }
+        } else if (key == "EncryptMetadata") {
+            bool value = info.encrypt_metadata;
+            if (parse_pdf_boolean(data, pos, value)) {
+                info.encrypt_metadata = value;
+            }
+        } else if (key == "Recipients") {
+            info.has_recipients = true;
+            if (pos < dict_end && data[pos] == '[') {
+                ++pos;
+                int depth = 1;
+                while (pos < dict_end && depth > 0) {
+                    if (data[pos] == '[') {
+                        ++depth;
+                        ++pos;
+                    } else if (data[pos] == ']') {
+                        --depth;
+                        ++pos;
+                    } else if (data[pos] == '<' && pos + 1 < data.size() && data[pos + 1] == '<') {
+                        std::size_t nested = find_dictionary_end(data, pos);
+                        if (nested == std::string::npos) {
+                            pos = dict_end;
+                        } else {
+                            pos = nested;
+                        }
+                    } else if (data[pos] == '<') {
+                        parse_pdf_hex_string(data, pos);
+                    } else if (data[pos] == '(') {
+                        parse_pdf_literal_string(data, pos);
+                    } else {
+                        ++pos;
+                    }
+                }
+            } else if (pos < dict_end && data[pos] == '<') {
+                parse_pdf_hex_string(data, pos);
+            }
         } else {
             if (pos >= dict_end) {
                 break;
