@@ -40,6 +40,16 @@ Run the probe with optional flags to tweak the workload:
 ./build/device_probe --lengths 6,8,10 --attempts 750000 --hash sha256 --include-special
 ```
 
+On Windows builds generated with MSBuild, specify the configuration and use the corresponding
+subdirectory when launching the executable:
+
+```powershell
+cmake --build build --target device_probe --config Release
+./build/Release/device_probe.exe --lengths 6,8,10 --attempts 750000 --hash sha256 --include-special
+```
+If you keep the default Debug configuration (for example by omitting `--config Release`), the
+binary will instead be located at `build/Debug/device_probe.exe`.
+
 Key options:
 
 - `--lengths <list>` – Comma separated password lengths to benchmark.
