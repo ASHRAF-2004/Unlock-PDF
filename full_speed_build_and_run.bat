@@ -14,6 +14,7 @@ set "MAX_LENGTH="
 set "CLEAN_BUILD=1"
 set "EXIT_CODE=0"
 set "EXTRA_ARGS="
+set "NOPAUSE=0"
 
 set "THREADS=%NUMBER_OF_PROCESSORS%"
 if not defined THREADS set "THREADS=0"
@@ -130,6 +131,11 @@ if /I "%~1"=="--build-dir" (
     shift
     goto parse_args
 )
+if /I "%~1"=="--no-pause" (
+    set "NOPAUSE=1"
+    shift
+    goto parse_args
+)
 if /I "%~1"=="--no-clean" (
     set "CLEAN_BUILD=0"
     shift
@@ -208,9 +214,23 @@ echo.
 "%EXEC%" !RUN_ARGS!
 set "EXIT_CODE=%ERRORLEVEL%"
 
+echo.
+if %EXIT_CODE% EQU 0 (
+    echo Execution completed successfully.
+) else if %EXIT_CODE% EQU 1 (
+    echo The executable reported an error. Review the output above for details.
+) else if %EXIT_CODE% EQU 2 (
+    echo Completed execution, but no matching password was found with the provided settings.
+) else (
+    echo The executable exited with unexpected code %EXIT_CODE%.
+)
+
 goto cleanup
 
 :cleanup
 echo.
 popd >nul
+if not "%NOPAUSE%"=="1" (
+    pause
+)
 endlocal & exit /b %EXIT_CODE%
