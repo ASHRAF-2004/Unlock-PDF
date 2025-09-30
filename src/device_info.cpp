@@ -349,6 +349,7 @@ int main(int argc, char* argv[]) {
         std::cout << "Workload:           Synthetic hash" << '\n';
         std::cout << "Hash mode:          "
                   << (config.hash_mode == HashMode::Sha256 ? "SHA-256" : "None (std::hash)") << '\n';
+        std::cout << "Note:               Use --pdf <file.pdf> to benchmark the real PDF password check." << '\n';
     }
     std::cout << "Attempts per test:   " << config.attempts << "\n\n";
 
