@@ -46,6 +46,15 @@ To measure your hardware against the real password-check routine, point the prob
 ./build/device_probe --pdf secret.pdf --lengths 6,8 --attempts 2500
 ```
 
+The repository includes `Test1.pdf`, a small encrypted sample you can use to validate the "real" workload:
+
+```bash
+./build/device_probe --pdf Test1.pdf --lengths 6,8 --attempts 2500
+```
+
+The PDF mode performs the same password verification logic as the main cracker, so expect the attempts-per-second figures to be
+significantly lower than the synthetic hash benchmark. Increase `--attempts` only after confirming the run completes successfully.
+
 On Windows builds generated with MSBuild, specify the configuration and use the corresponding
 subdirectory when launching the executable:
 
