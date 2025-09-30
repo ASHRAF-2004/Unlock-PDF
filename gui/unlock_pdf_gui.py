@@ -14,8 +14,10 @@ from tkinter import filedialog, messagebox, scrolledtext
 
 def default_binary_path() -> str:
     """Return the default location of the pdf_password_retriever binary."""
+
     exe_name = "pdf_password_retriever.exe" if os.name == "nt" else "pdf_password_retriever"
-    default_path = Path("build") / exe_name
+    project_root = Path(__file__).resolve().parent.parent
+    default_path = project_root / "build" / exe_name
     return str(default_path)
 
 
@@ -40,6 +42,7 @@ class UnlockPDFGui:
         self.include_digits = tk.BooleanVar(value=True)
         self.include_special = tk.BooleanVar(value=True)
         self.use_custom_only = tk.BooleanVar(value=False)
+        self.status_var = tk.StringVar(value="Idle")
 
         self._char_checkbuttons: list[tk.Checkbutton] = []
 
@@ -104,6 +107,10 @@ class UnlockPDFGui:
         main_frame.rowconfigure(9, weight=1)
         main_frame.columnconfigure(1, weight=1)
 
+        status_frame = tk.Frame(self.master, padx=10, pady=5)
+        status_frame.pack(fill=tk.X)
+        tk.Label(status_frame, textvariable=self.status_var, anchor=tk.W).pack(fill=tk.X)
+
     def _choose_binary(self) -> None:
         path = filedialog.askopenfilename(title="Select pdf_password_retriever executable")
         if path:
@@ -139,10 +146,11 @@ class UnlockPDFGui:
 
     def _validate_binary(self) -> str | None:
         binary = self.binary_var.get().strip() or default_binary_path()
-        if not Path(binary).exists():
+        binary_path = Path(binary)
+        if not binary_path.exists():
             messagebox.showerror("Executable not found", f"Could not find pdf_password_retriever at:\n{binary}")
             return None
-        return binary
+        return str(binary_path)
 
     def _collect_common_args(self) -> list[str] | None:
         binary = self._validate_binary()
@@ -153,10 +161,16 @@ class UnlockPDFGui:
         if not pdf:
             messagebox.showerror("Missing PDF", "Please select an encrypted PDF file to process.")
             return None
+        if not Path(pdf).exists():
+            messagebox.showerror("PDF not found", f"The selected PDF could not be found:\n{pdf}")
+            return None
 
         args = [binary]
         wordlist = self.wordlist_var.get().strip()
         if wordlist:
+            if not Path(wordlist).exists():
+                messagebox.showerror("Missing wordlist", f"The selected wordlist could not be found:\n{wordlist}")
+                return None
             args.extend(["--wordlist", wordlist])
 
         min_length = self.min_length_var.get().strip()
@@ -177,19 +191,36 @@ class UnlockPDFGui:
                 args.append("--use-custom-only")
 
         if not self.use_custom_only.get():
-            if self.include_upper.get():
+            selections = {
+                "uppercase": self.include_upper.get(),
+                "lowercase": self.include_lower.get(),
+                "digits": self.include_digits.get(),
+                "special": self.include_special.get(),
+            }
+
+            if not any(selections.values()):
+                messagebox.showerror(
+                    "No character sets",
+                    "Please enable at least one character class or choose 'Use Custom Only'.",
+                )
+                return None
+
+            if selections["uppercase"]:
                 args.append("--include-uppercase")
             else:
                 args.append("--exclude-uppercase")
-            if self.include_lower.get():
+
+            if selections["lowercase"]:
                 args.append("--include-lowercase")
             else:
                 args.append("--exclude-lowercase")
-            if self.include_digits.get():
+
+            if selections["digits"]:
                 args.append("--include-digits")
             else:
                 args.append("--exclude-digits")
-            if self.include_special.get():
+
+            if selections["special"]:
                 args.append("--include-special")
             else:
                 args.append("--exclude-special")
@@ -223,12 +254,21 @@ class UnlockPDFGui:
 
         self._stop_event.clear()
         self._toggle_buttons(running=True)
+        self._set_status("Running...")
 
         def worker() -> None:
             try:
-                process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                process = subprocess.Popen(
+                    command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                )
             except FileNotFoundError:
                 self._append_output("Failed to launch pdf_password_retriever.\n")
+                self._set_status("Executable not found")
                 self._toggle_buttons(running=False)
                 return
 
@@ -237,11 +277,15 @@ class UnlockPDFGui:
                     if self._stop_event.is_set():
                         process.terminate()
                         self._append_output("Process terminated by user.\n")
+                        self._set_status("Stopped by user")
                         break
                     self._append_output(line)
             return_code = process.wait()
             if return_code is not None and return_code != 0 and not self._stop_event.is_set():
                 self._append_output(f"\nProcess exited with code {return_code}.\n")
+                self._set_status(f"Process exited with code {return_code}")
+            elif not self._stop_event.is_set():
+                self._set_status("Completed")
             self._toggle_buttons(running=False)
 
         self._runner = threading.Thread(target=worker, daemon=True)
@@ -250,6 +294,7 @@ class UnlockPDFGui:
     def _stop_process(self) -> None:
         if self._runner and self._runner.is_alive():
             self._stop_event.set()
+            self._set_status("Stopping...")
 
     def _toggle_buttons(self, running: bool) -> None:
         state_run = tk.DISABLED if running else tk.NORMAL
@@ -258,6 +303,13 @@ class UnlockPDFGui:
             self.run_button.configure(state=state_run)
             self.info_button.configure(state=state_run)
             self.stop_button.configure(state=state_stop)
+            if not running and self.status_var.get() in {"Running...", "Stopping..."}:
+                self.status_var.set("Idle")
+        self.master.after(0, update)
+
+    def _set_status(self, message: str) -> None:
+        def update() -> None:
+            self.status_var.set(message)
         self.master.after(0, update)
 
 
