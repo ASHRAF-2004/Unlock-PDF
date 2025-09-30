@@ -131,8 +131,15 @@ If you prefer a point-and-click workflow, a Tkinter-based launcher is available 
    python3 gui/unlock_pdf_gui.py
    ```
 
+   On Windows you can also double-click `gui/unlock_pdf_gui.pyw`. The `.pyw` extension opens the
+   interface with `pythonw.exe`, so it behaves like a regular desktop application without a console
+   window popping up.
+
 3. Use the "Browse" buttons to choose the executable, encrypted PDF, and optional wordlist.
 4. Adjust the password generation options, then click **Run Crack** or **Get PDF Info** to launch the command.
+5. To benchmark your hardware, set the `device_probe` path (built via CMake) and click **Run Device Probe**.
+   Provide additional probe flags in the **Probe Options** field—anything you type there is passed directly
+   to the helper executable.
 
 The GUI streams the CLI output in real time and lets you stop the process if needed. Tkinter ships with most Python distributions;
 if it is missing, install the appropriate `python3-tk` package for your platform.
