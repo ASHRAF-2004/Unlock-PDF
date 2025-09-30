@@ -17,6 +17,8 @@ struct PDFEncryptInfo {
     std::string stream_filter;
     std::string string_filter;
     std::string ef_filter;
+    std::string crypt_filter;
+    std::string crypt_filter_method;
     int version = 0;
     int revision = 0;
     int length = 0;

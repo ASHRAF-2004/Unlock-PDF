@@ -8,6 +8,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 namespace unlock_pdf::pdf {
 namespace {
@@ -348,6 +349,104 @@ bool extract_encryption_info(const std::string& data, PDFEncryptInfo& info) {
     }
     std::cout << snippet << std::endl;
 
+    std::unordered_map<std::string, std::string> crypt_filter_methods;
+
+    auto skip_pdf_object_in_range = [&](std::size_t& position, std::size_t limit) {
+        skip_whitespace_and_comments(data, position);
+        if (position >= limit) {
+            return;
+        }
+        if (data[position] == '<') {
+            if (position + 1 < data.size() && data[position + 1] == '<') {
+                std::size_t nested_end = find_dictionary_end(data, position);
+                if (nested_end == std::string::npos || nested_end > limit) {
+                    position = limit;
+                } else {
+                    position = nested_end;
+                }
+            } else {
+                parse_pdf_hex_string(data, position);
+            }
+            return;
+        }
+        if (data[position] == '(') {
+            parse_pdf_literal_string(data, position);
+            return;
+        }
+        if (data[position] == '[') {
+            ++position;
+            int depth = 1;
+            while (position < limit && depth > 0) {
+                skip_whitespace_and_comments(data, position);
+                if (position >= limit) {
+                    break;
+                }
+                char token = data[position];
+                if (token == '[') {
+                    ++depth;
+                    ++position;
+                } else if (token == ']') {
+                    --depth;
+                    ++position;
+                } else if (token == '(') {
+                    parse_pdf_literal_string(data, position);
+                } else if (token == '<') {
+                    if (position + 1 < data.size() && data[position + 1] == '<') {
+                        std::size_t nested_end = find_dictionary_end(data, position);
+                        if (nested_end == std::string::npos || nested_end > limit) {
+                            position = limit;
+                        } else {
+                            position = nested_end;
+                        }
+                    } else {
+                        parse_pdf_hex_string(data, position);
+                    }
+                } else {
+                    ++position;
+                }
+            }
+            return;
+        }
+        while (position < limit && !std::isspace(static_cast<unsigned char>(data[position])) &&
+               data[position] != '/') {
+            ++position;
+        }
+    };
+
+    auto update_selected_crypt_filter = [&]() {
+        if (crypt_filter_methods.empty()) {
+            return;
+        }
+
+        auto pick_filter = [&](const std::string& name) -> bool {
+            if (name.empty()) {
+                return false;
+            }
+            auto it = crypt_filter_methods.find(name);
+            if (it == crypt_filter_methods.end()) {
+                return false;
+            }
+            info.crypt_filter = it->first;
+            info.crypt_filter_method = it->second;
+            return true;
+        };
+
+        if (pick_filter(info.stream_filter)) {
+            return;
+        }
+        if (pick_filter(info.string_filter)) {
+            return;
+        }
+        if (pick_filter(info.ef_filter)) {
+            return;
+        }
+
+        if (!pick_filter("StdCF")) {
+            info.crypt_filter = crypt_filter_methods.begin()->first;
+            info.crypt_filter_method = crypt_filter_methods.begin()->second;
+        }
+    };
+
     pos = dict_start + 2;
     while (pos < dict_end) {
         skip_whitespace_and_comments(data, pos);
@@ -390,16 +489,98 @@ bool extract_encryption_info(const std::string& data, PDFEncryptInfo& info) {
                 ++pos;
                 info.sub_filter = parse_pdf_name(data, pos);
             }
+        } else if (key == "CF") {
+            std::size_t cf_pos = pos;
+            if (cf_pos < dict_end && data[cf_pos] == '<' && cf_pos + 1 < data.size() &&
+                data[cf_pos + 1] == '<') {
+                std::size_t cf_end = find_dictionary_end(data, cf_pos);
+                if (cf_end == std::string::npos) {
+                    pos = dict_end;
+                    break;
+                }
+                cf_pos += 2;
+                while (cf_pos < cf_end) {
+                    skip_whitespace_and_comments(data, cf_pos);
+                    if (cf_pos >= cf_end) {
+                        break;
+                    }
+                    if (data[cf_pos] != '/') {
+                        ++cf_pos;
+                        continue;
+                    }
+                    ++cf_pos;
+                    std::string filter_name = parse_pdf_name(data, cf_pos);
+                    skip_whitespace_and_comments(data, cf_pos);
+                    if (cf_pos >= cf_end) {
+                        break;
+                    }
+                    std::size_t value_pos = cf_pos;
+                    if (value_pos < cf_end && data[value_pos] == '<' && value_pos + 1 < data.size() &&
+                        data[value_pos + 1] == '<') {
+                        std::size_t filter_dict_end = find_dictionary_end(data, value_pos);
+                        if (filter_dict_end == std::string::npos || filter_dict_end > cf_end) {
+                            cf_pos = cf_end;
+                            break;
+                        }
+                        value_pos += 2;
+                        while (value_pos < filter_dict_end) {
+                            skip_whitespace_and_comments(data, value_pos);
+                            if (value_pos >= filter_dict_end) {
+                                break;
+                            }
+                            if (data[value_pos] != '/') {
+                                ++value_pos;
+                                continue;
+                            }
+                            ++value_pos;
+                            std::string inner_key = parse_pdf_name(data, value_pos);
+                            skip_whitespace_and_comments(data, value_pos);
+                            std::size_t inner_value_pos = value_pos;
+                            if (inner_key == "CFM") {
+                                std::string method;
+                                if (inner_value_pos < filter_dict_end && data[inner_value_pos] == '/') {
+                                    ++inner_value_pos;
+                                    method = parse_pdf_name(data, inner_value_pos);
+                                } else if (inner_value_pos < filter_dict_end &&
+                                           data[inner_value_pos] == '(') {
+                                    auto bytes = parse_pdf_literal_string(data, inner_value_pos);
+                                    method.assign(bytes.begin(), bytes.end());
+                                } else if (inner_value_pos < filter_dict_end &&
+                                           data[inner_value_pos] == '<') {
+                                    auto bytes = parse_pdf_hex_string(data, inner_value_pos);
+                                    method.assign(bytes.begin(), bytes.end());
+                                }
+                                if (!method.empty()) {
+                                    crypt_filter_methods[filter_name] = method;
+                                }
+                            }
+                            skip_pdf_object_in_range(inner_value_pos, filter_dict_end);
+                            value_pos = inner_value_pos;
+                        }
+                        cf_pos = filter_dict_end;
+                    } else {
+                        skip_pdf_object_in_range(value_pos, cf_end);
+                        cf_pos = value_pos;
+                    }
+                }
+                pos = cf_end;
+            } else {
+                skip_pdf_object_in_range(cf_pos, dict_end);
+                pos = cf_pos;
+            }
+            update_selected_crypt_filter();
         } else if (key == "StmF") {
             if (pos < dict_end && data[pos] == '/') {
                 ++pos;
                 info.stream_filter = parse_pdf_name(data, pos);
             }
+            update_selected_crypt_filter();
         } else if (key == "StrF") {
             if (pos < dict_end && data[pos] == '/') {
                 ++pos;
                 info.string_filter = parse_pdf_name(data, pos);
             }
+            update_selected_crypt_filter();
         } else if (key == "EFF") {
             if (pos < dict_end && data[pos] == '/') {
                 ++pos;
@@ -488,6 +669,8 @@ bool extract_encryption_info(const std::string& data, PDFEncryptInfo& info) {
         }
     }
 
+    update_selected_crypt_filter();
+
     if (info.revision >= 5 && info.length == 0) {
         info.length = 256;
     }
@@ -564,14 +747,96 @@ bool read_pdf_encrypt_info(const std::string& filename, PDFEncryptInfo& info) {
     if (info.length > 0) {
         std::cout << "  Key Length: " << info.length << " bits" << std::endl;
     }
-    if (info.revision >= 5) {
-        std::cout << "  Encryption: AES-256" << std::endl;
-        if (info.revision >= 6) {
-            std::cout << "  Method: AESV3" << std::endl;
-        } else {
-            std::cout << "  Method: Standard Security Handler R5" << std::endl;
+
+    int effective_key_length = info.length;
+    if (effective_key_length == 0) {
+        if (info.revision >= 5) {
+            effective_key_length = 256;
+        } else if (info.version >= 4) {
+            effective_key_length = 128;
+        } else if (info.version >= 2) {
+            effective_key_length = 40;
+        } else if (info.version >= 1) {
+            effective_key_length = 40;
         }
     }
+
+    auto method_to_algorithm = [&](const std::string& method_value) {
+        if (method_value == "AESV3") {
+            return std::string("AES-256");
+        }
+        if (method_value == "AESV2") {
+            if (effective_key_length >= 256) {
+                return std::string("AES-256");
+            }
+            if (effective_key_length >= 192) {
+                return std::string("AES-192");
+            }
+            if (effective_key_length >= 128) {
+                return std::string("AES-128");
+            }
+            if (effective_key_length > 0) {
+                return std::string("AES-") + std::to_string(effective_key_length);
+            }
+            return std::string("AES");
+        }
+        if (method_value == "V2") {
+            if (effective_key_length > 0) {
+                return std::string("RC4-") + std::to_string(effective_key_length);
+            }
+            return std::string("RC4");
+        }
+        if (method_value == "V1") {
+            return std::string("RC4-40");
+        }
+        if (method_value == "Identity" || method_value == "None") {
+            return std::string("No encryption");
+        }
+        return method_value;
+    };
+
+    std::string encryption_description;
+    std::string method_description;
+
+    if (!info.crypt_filter_method.empty()) {
+        encryption_description = method_to_algorithm(info.crypt_filter_method);
+        method_description = info.crypt_filter_method;
+        if (!info.crypt_filter.empty()) {
+            method_description += " (crypt filter: " + info.crypt_filter + ")";
+        }
+    } else {
+        if (info.revision >= 6) {
+            encryption_description = "AES-256";
+            method_description = "AESV3";
+        } else if (info.revision >= 5) {
+            encryption_description = "AES-256";
+            method_description = "Standard Security Handler R5";
+        } else if (info.version >= 4) {
+            if (effective_key_length >= 128) {
+                encryption_description = "AES-128";
+                method_description = "AESV2";
+            } else {
+                encryption_description = method_to_algorithm("V2");
+                method_description = "V2";
+            }
+        } else if (info.version >= 2) {
+            encryption_description = method_to_algorithm("V2");
+            method_description = "V2";
+        } else if (info.version >= 1) {
+            encryption_description = "RC4-40";
+            method_description = "V1";
+        }
+    }
+
+    if (encryption_description.empty()) {
+        encryption_description = "Unknown";
+    }
+    if (method_description.empty()) {
+        method_description = "Unknown";
+    }
+
+    std::cout << "  Encryption: " << encryption_description << std::endl;
+    std::cout << "  Method: " << method_description << std::endl;
 
     return true;
 }
