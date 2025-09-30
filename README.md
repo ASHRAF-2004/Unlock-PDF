@@ -121,7 +121,8 @@ The brute-force engine is CPU-bound. On a single hardware thread you should expe
 ## Graphical Interface
 
 If you prefer a point-and-click workflow, a Tkinter-based launcher is available at `gui/unlock_pdf_gui.py`. The utility wraps the
-`pdf_password_retriever` executable and exposes the most common options through a desktop interface.
+`pdf_password_retriever` executable and exposes the most common options through a desktop interface. It also includes a one-click
+launcher for the `device_probe` benchmarking helper so you can inspect system throughput without leaving the GUI.
 
 1. Build the CLI executable as described above so that `build/pdf_password_retriever` (or `build/pdf_password_retriever.exe` on
    Windows) exists.
@@ -136,6 +137,19 @@ If you prefer a point-and-click workflow, a Tkinter-based launcher is available 
 
 The GUI streams the CLI output in real time and lets you stop the process if needed. Tkinter ships with most Python distributions;
 if it is missing, install the appropriate `python3-tk` package for your platform.
+
+### Packaging the GUI as a Windows `.exe`
+
+If you want to launch the interface like a native application, build a standalone executable with PyInstaller:
+
+```powershell
+cd gui
+package_gui_exe.bat
+```
+
+The helper script bootstraps PyInstaller (if necessary) and outputs a ready-to-run app in `gui\dist\UnlockPDFGui\UnlockPDFGui.exe`.
+If the script cannot find `pdf_password_retriever.exe` in `build\`, copy the compiled CLI next to the generated GUI executable
+before distributing it. Double-click `UnlockPDFGui.exe` to start the interface without opening a terminal window.
 
 ## PDF Metadata Inspection
 The tool automatically parses encryption metadata while attempting passwords. If you only need to inspect a PDF without cracking it, run:
