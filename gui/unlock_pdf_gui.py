@@ -21,6 +21,15 @@ def default_binary_path() -> str:
     return str(default_path)
 
 
+def default_device_probe_path() -> str:
+    """Return the default location of the device_probe helper executable."""
+
+    exe_name = "device_probe.exe" if os.name == "nt" else "device_probe"
+    project_root = Path(__file__).resolve().parent.parent
+    default_path = project_root / "build" / exe_name
+    return str(default_path)
+
+
 class UnlockPDFGui:
     def __init__(self, master: tk.Tk) -> None:
         self.master = master
@@ -31,6 +40,8 @@ class UnlockPDFGui:
         self._stop_event = threading.Event()
 
         self.binary_var = tk.StringVar(value=default_binary_path())
+        self.device_probe_var = tk.StringVar(value=default_device_probe_path())
+        self.device_probe_args_var = tk.StringVar()
         self.pdf_var = tk.StringVar()
         self.wordlist_var = tk.StringVar()
         self.min_length_var = tk.StringVar(value="6")
@@ -62,16 +73,19 @@ class UnlockPDFGui:
             return entry
 
         add_labeled_entry(0, "Binary:", self.binary_var, browse=True, command=self._choose_binary)
-        add_labeled_entry(1, "PDF File:", self.pdf_var, browse=True, command=self._choose_pdf)
-        add_labeled_entry(2, "Wordlist:", self.wordlist_var, browse=True, command=self._choose_wordlist)
+        add_labeled_entry(1, "Device Probe:", self.device_probe_var, browse=True,
+                          command=self._choose_device_probe)
+        add_labeled_entry(2, "Probe Options:", self.device_probe_args_var)
+        add_labeled_entry(3, "PDF File:", self.pdf_var, browse=True, command=self._choose_pdf)
+        add_labeled_entry(4, "Wordlist:", self.wordlist_var, browse=True, command=self._choose_wordlist)
 
-        add_labeled_entry(3, "Min Length:", self.min_length_var)
-        add_labeled_entry(4, "Max Length:", self.max_length_var)
-        add_labeled_entry(5, "Threads:", self.thread_var)
-        add_labeled_entry(6, "Custom Characters:", self.custom_chars_var)
+        add_labeled_entry(5, "Min Length:", self.min_length_var)
+        add_labeled_entry(6, "Max Length:", self.max_length_var)
+        add_labeled_entry(7, "Threads:", self.thread_var)
+        add_labeled_entry(8, "Custom Characters:", self.custom_chars_var)
 
         char_frame = tk.LabelFrame(main_frame, text="Character Classes", padx=10, pady=5)
-        char_frame.grid(row=7, column=0, columnspan=3, sticky=tk.EW, pady=5)
+        char_frame.grid(row=9, column=0, columnspan=3, sticky=tk.EW, pady=5)
 
         for column, (text, var) in enumerate((
             ("Uppercase", self.include_upper),
@@ -88,13 +102,16 @@ class UnlockPDFGui:
                        command=self._refresh_character_state).grid(row=1, column=0, sticky=tk.W, pady=(5, 0))
 
         button_frame = tk.Frame(main_frame, pady=10)
-        button_frame.grid(row=8, column=0, columnspan=3, sticky=tk.EW)
+        button_frame.grid(row=10, column=0, columnspan=3, sticky=tk.EW)
+
+        self.probe_button = tk.Button(button_frame, text="Run Device Probe", command=self._run_device_probe)
+        self.probe_button.pack(side=tk.LEFT)
 
         self.info_button = tk.Button(button_frame, text="Get PDF Info", command=self._run_info)
-        self.info_button.pack(side=tk.LEFT)
+        self.info_button.pack(side=tk.LEFT, padx=10)
 
         self.run_button = tk.Button(button_frame, text="Run Crack", command=self._run_cracker)
-        self.run_button.pack(side=tk.LEFT, padx=10)
+        self.run_button.pack(side=tk.LEFT)
 
         self.stop_button = tk.Button(button_frame, text="Stop", state=tk.DISABLED, command=self._stop_process)
         self.stop_button.pack(side=tk.LEFT)
@@ -102,9 +119,9 @@ class UnlockPDFGui:
         tk.Button(button_frame, text="Clear Output", command=self._clear_output).pack(side=tk.RIGHT)
 
         self.output = scrolledtext.ScrolledText(main_frame, height=20, wrap=tk.WORD)
-        self.output.grid(row=9, column=0, columnspan=3, sticky=tk.NSEW)
+        self.output.grid(row=11, column=0, columnspan=3, sticky=tk.NSEW)
 
-        main_frame.rowconfigure(9, weight=1)
+        main_frame.rowconfigure(11, weight=1)
         main_frame.columnconfigure(1, weight=1)
 
         status_frame = tk.Frame(self.master, padx=10, pady=5)
@@ -115,6 +132,11 @@ class UnlockPDFGui:
         path = filedialog.askopenfilename(title="Select pdf_password_retriever executable")
         if path:
             self.binary_var.set(path)
+
+    def _choose_device_probe(self) -> None:
+        path = filedialog.askopenfilename(title="Select device_probe executable")
+        if path:
+            self.device_probe_var.set(path)
 
     def _choose_pdf(self) -> None:
         path = filedialog.askopenfilename(title="Select encrypted PDF", filetypes=[("PDF Files", "*.pdf"), ("All Files", "*.*")])
@@ -151,6 +173,14 @@ class UnlockPDFGui:
             messagebox.showerror("Executable not found", f"Could not find pdf_password_retriever at:\n{binary}")
             return None
         return str(binary_path)
+
+    def _validate_device_probe(self) -> str | None:
+        device_probe = self.device_probe_var.get().strip() or default_device_probe_path()
+        device_probe_path = Path(device_probe)
+        if not device_probe_path.exists():
+            messagebox.showerror("Executable not found", f"Could not find device_probe at:\n{device_probe}")
+            return None
+        return str(device_probe_path)
 
     def _collect_common_args(self) -> list[str] | None:
         binary = self._validate_binary()
@@ -243,6 +273,19 @@ class UnlockPDFGui:
         command = args[:1] + ["--pdf", pdf] + args[1:]
         self._execute(command, f"Starting crack for: {pdf}\n")
 
+    def _run_device_probe(self) -> None:
+        device_probe = self._validate_device_probe()
+        if not device_probe:
+            return
+        extra_args = shlex.split(self.device_probe_args_var.get()) if self.device_probe_args_var.get().strip() else []
+        command = [device_probe] + extra_args
+        header = "Running device_probe benchmark\n"
+        if extra_args:
+            header += "Options: " + " ".join(shlex.quote(arg) for arg in extra_args) + "\n\n"
+        else:
+            header += "Using default settings\n\n"
+        self._execute(command, header)
+
     def _execute(self, command: list[str], header: str) -> None:
         if self._runner and self._runner.is_alive():
             messagebox.showinfo("Process running", "Another operation is already in progress.")
@@ -302,6 +345,7 @@ class UnlockPDFGui:
         def update() -> None:
             self.run_button.configure(state=state_run)
             self.info_button.configure(state=state_run)
+            self.probe_button.configure(state=state_run)
             self.stop_button.configure(state=state_stop)
             if not running and self.status_var.get() in {"Running...", "Stopping..."}:
                 self.status_var.set("Idle")
