@@ -40,6 +40,12 @@ Run the probe with optional flags to tweak the workload:
 ./build/device_probe --lengths 6,8,10 --attempts 750000 --hash sha256 --include-special
 ```
 
+To measure your hardware against the real password-check routine, point the probe at an encrypted PDF:
+
+```bash
+./build/device_probe --pdf secret.pdf --lengths 6,8 --attempts 2500
+```
+
 On Windows builds generated with MSBuild, specify the configuration and use the corresponding
 subdirectory when launching the executable:
 
@@ -55,6 +61,7 @@ Key options:
 - `--lengths <list>` – Comma separated password lengths to benchmark.
 - `--attempts <n>` – Attempts per length (default: 500000).
 - `--hash <mode>` – `none` (fast hash) or `sha256` for a heavier workload.
+- `--pdf <path>` – Switch to the real PDF password-check workload using metadata from the specified file.
 - `--include-special` – Adds printable punctuation to the default character set.
 - `--custom <chars>` – Provide an explicit character set for testing.
 
