@@ -299,7 +299,28 @@ std::vector<unsigned char> extract_document_id(const std::string& data) {
 }
 
 bool extract_encryption_info(const std::string& data, PDFEncryptInfo& info) {
-    std::size_t encrypt_pos = data.find("/Encrypt");
+    std::size_t encrypt_pos = std::string::npos;
+    std::size_t search_pos = 0;
+    while (true) {
+        std::size_t candidate = data.find("/Encrypt", search_pos);
+        if (candidate == std::string::npos) {
+            break;
+        }
+
+        std::size_t after_token = candidate + 8; // length of "/Encrypt"
+        if (after_token >= data.size()) {
+            break;
+        }
+
+        unsigned char next_char = static_cast<unsigned char>(data[after_token]);
+        if (std::isspace(next_char) || next_char == '<') {
+            encrypt_pos = candidate;
+            break;
+        }
+
+        search_pos = candidate + 8;
+    }
+
     if (encrypt_pos == std::string::npos) {
         std::cout << "No /Encrypt dictionary found" << std::endl;
         info = PDFEncryptInfo{};
