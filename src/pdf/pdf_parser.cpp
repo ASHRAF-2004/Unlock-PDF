@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <cstring>
 
 namespace unlock_pdf::pdf {
 namespace {
@@ -683,14 +684,41 @@ void print_pdf_structure(const std::string& data) {
     std::cout << "\nAnalyzing PDF structure:" << std::endl;
     std::cout << "------------------------" << std::endl;
 
-    const char* keywords[] = {
-        "/Encrypt", "obj", "endobj", "/Filter", "/V ", "/R ", "/O", "/U",
-        "/Length", "/CF", "/StmF", "/StrF", "/AESV3"};
+    struct KeywordRule {
+        const char* token;
+        bool require_word_boundaries;
+    };
 
-    for (const char* keyword : keywords) {
+    const KeywordRule keywords[] = {
+        {"/Encrypt", true}, {"obj", true},     {"endobj", true}, {"/Filter", true},
+        {"/V ", false},     {"/R ", false},     {"/O", true},      {"/U", true},
+        {"/Length", true},  {"/CF", true},      {"/StmF", true},   {"/StrF", true},
+        {"/AESV3", true}};
+
+    auto requires_boundary = [](char ch) {
+        return std::isalnum(static_cast<unsigned char>(ch)) || ch == '_';
+    };
+
+    for (const auto& keyword : keywords) {
         std::size_t pos = 0;
         int count = 0;
-        while ((pos = data.find(keyword, pos)) != std::string::npos) {
+        const std::size_t token_length = std::strlen(keyword.token);
+        while ((pos = data.find(keyword.token, pos)) != std::string::npos) {
+            if (keyword.require_word_boundaries) {
+                bool prefix_ok = true;
+                if (pos > 0) {
+                    prefix_ok = !requires_boundary(data[pos - 1]);
+                }
+                bool suffix_ok = true;
+                if (pos + token_length < data.size()) {
+                    suffix_ok = !requires_boundary(data[pos + token_length]);
+                }
+                if (!prefix_ok || !suffix_ok) {
+                    pos += token_length;
+                    continue;
+                }
+            }
+
             if (count < 3) {
                 std::size_t context_end = std::min(pos + static_cast<std::size_t>(50), data.size());
                 std::string context = data.substr(pos, context_end - pos);
@@ -699,13 +727,14 @@ void print_pdf_structure(const std::string& data) {
                         ch = ' ';
                     }
                 }
-                std::cout << "Found '" << keyword << "' at offset " << pos << ": " << context << std::endl;
+                std::cout << "Found '" << keyword.token << "' at offset " << pos << ": " << context
+                          << std::endl;
             }
             ++count;
-            ++pos;
+            pos += token_length;
         }
         if (count > 0) {
-            std::cout << "Total occurrences of '" << keyword << "': " << count << std::endl;
+            std::cout << "Total occurrences of '" << keyword.token << "': " << count << std::endl;
         }
     }
 
