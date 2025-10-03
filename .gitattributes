@@ -1,16 +1,3 @@
-# Use a custom hex diff driver for common binary assets
-# See diff-hex.config for the driver configuration snippet.
 *.pdf binary diff=hex
 *.bin binary diff=hex
-*.exe binary diff=hex
-*.dll binary diff=hex
 *.dat binary diff=hex
-*.zip binary diff=hex
-*.tar binary diff=hex
-*.gz binary diff=hex
-*.7z binary diff=hex
-*.png binary diff=hex
-*.jpg binary diff=hex
-*.jpeg binary diff=hex
-*.bmp binary diff=hex
-*.gif binary diff=hex

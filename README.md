@@ -5,6 +5,22 @@
 - CMake 3.16 or newer
 - (Optional) Ninja or Make if you prefer those generators
 
+## Git Diff Setup for Binary Artifacts
+To make encrypted PDFs and other binary assets easier to review, configure Git to
+use a hexdump-based diff driver. Add the following stanza to your global
+`~/.gitconfig` (or repository-local `.git/config` if you prefer per-project
+settings):
+
+```
+[diff "hex"]
+    textconv = hexdump -v -C
+    binary = true
+```
+
+The same block is available in `diff-hex.config` if you want to copy/paste it.
+With this configuration in place Git will render binary diffs as hexadecimal
+when combined with the `.gitattributes` rules tracked in this repository.
+
 ## Configure & Build (Linux/macOS)
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
