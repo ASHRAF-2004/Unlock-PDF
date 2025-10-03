@@ -1,4 +1,5 @@
 # Use a custom hex diff driver for common binary assets
+# See diff-hex.config for the driver configuration snippet.
 *.pdf binary diff=hex
 *.bin binary diff=hex
 *.exe binary diff=hex
