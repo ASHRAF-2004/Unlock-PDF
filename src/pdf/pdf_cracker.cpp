@@ -220,14 +220,18 @@ class FilePasswordSource final : public PasswordSource {
             return false;
         }
 
-        std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> converter;
-        out = converter.to_bytes(buffer);
+        try {
+            out = utf16_converter_.to_bytes(buffer);
+        } catch (const std::range_error&) {
+            out.clear();
+        }
         return true;
     }
 
     std::ifstream stream_;
     Encoding encoding_ = Encoding::Utf8;
     std::mutex mutex_;
+    std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> utf16_converter_;
 };
 
 bool crack_with_source(PasswordSource& source,
@@ -261,7 +265,6 @@ bool crack_with_source(PasswordSource& source,
             thread_count = 2;
         }
     }
-    thread_count = std::min<unsigned int>(thread_count, 16);
     thread_count = std::max(thread_count, 1u);
     if (source.has_total()) {
         std::size_t total = source.total();
@@ -401,7 +404,7 @@ bool crack_pdf_bruteforce(const unlock_pdf::util::WordlistOptions& options,
             alphabet += "0123456789";
         }
         if (options.include_special) {
-            alphabet += "!@#$%^&*()_+={}[]|:;<>,.?/~";
+            alphabet += "!\"#$%&'()*+,-./:;<=>?@[]^_{|}~";
         }
     }
 
@@ -432,7 +435,6 @@ bool crack_pdf_bruteforce(const unlock_pdf::util::WordlistOptions& options,
             thread_count = 2;
         }
     }
-    thread_count = std::min<unsigned int>(thread_count, 16);
     thread_count = std::max(thread_count, 1u);
 
     std::cout << "\nStarting brute-force password search with " << thread_count << " threads" << std::endl;

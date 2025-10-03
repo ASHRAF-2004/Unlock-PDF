@@ -175,6 +175,9 @@ bool AES256Handler::can_handle(const PDFEncryptInfo& info) const {
     if (!info.encrypted) {
         return false;
     }
+    if (!info.filter.empty() && info.filter != "Standard") {
+        return false;
+    }
     return info.revision >= 5;
 }
 
