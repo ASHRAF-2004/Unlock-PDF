@@ -2,11 +2,14 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <iterator>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <unordered_map>
 #include <cstring>
@@ -27,6 +30,31 @@ void skip_whitespace_and_comments(const std::string& data, std::size_t& pos) {
             break;
         }
     }
+}
+
+std::string make_printable(std::string_view text) {
+    std::string sanitized;
+    sanitized.reserve(text.size());
+    for (unsigned char ch : text) {
+        if (ch == '\r' || ch == '\n') {
+            sanitized.push_back(' ');
+        } else if (ch >= 32 && ch <= 126) {
+            sanitized.push_back(static_cast<char>(ch));
+        } else {
+            sanitized.push_back('.');
+        }
+    }
+    return sanitized;
+}
+
+std::string make_printable_truncated(std::string_view text, std::size_t max_length) {
+    if (text.size() <= max_length) {
+        return make_printable(text);
+    }
+
+    std::string trimmed = make_printable(text.substr(0, max_length));
+    trimmed.append("...");
+    return trimmed;
 }
 
 bool parse_pdf_boolean(const std::string& data, std::size_t& pos, bool& value) {
@@ -363,13 +391,8 @@ bool extract_encryption_info(const std::string& data, PDFEncryptInfo& info) {
     }
 
     std::cout << "Found encryption object. Content:" << std::endl;
-    std::string snippet = data.substr(dict_start, std::min<std::size_t>(dict_end - dict_start, 200));
-    for (char& ch : snippet) {
-        if (ch == '\r' || ch == '\n') {
-            ch = ' ';
-        }
-    }
-    std::cout << snippet << std::endl;
+    std::string_view dict_view(data.c_str() + dict_start, dict_end - dict_start);
+    std::cout << make_printable_truncated(dict_view, 200) << std::endl;
 
     std::unordered_map<std::string, std::string> crypt_filter_methods;
 
@@ -742,12 +765,8 @@ void print_pdf_structure(const std::string& data) {
 
             if (count < 3) {
                 std::size_t context_end = std::min(pos + static_cast<std::size_t>(50), data.size());
-                std::string context = data.substr(pos, context_end - pos);
-                for (char& ch : context) {
-                    if (ch == '\r' || ch == '\n') {
-                        ch = ' ';
-                    }
-                }
+                std::string context = make_printable_truncated(
+                    std::string_view(data).substr(pos, context_end - pos), 80);
                 std::cout << "Found '" << keyword.token << "' at offset " << pos << ": " << context
                           << std::endl;
             }
@@ -887,6 +906,102 @@ bool read_pdf_encrypt_info(const std::string& filename, PDFEncryptInfo& info) {
 
     std::cout << "  Encryption: " << encryption_description << std::endl;
     std::cout << "  Method: " << method_description << std::endl;
+
+    auto describe_bytes = [](const std::vector<unsigned char>& bytes) {
+        if (bytes.empty()) {
+            return std::string();
+        }
+        std::ostringstream oss;
+        oss << std::hex << std::setfill('0');
+        for (unsigned char ch : bytes) {
+            oss << std::setw(2) << static_cast<int>(ch);
+        }
+        return oss.str();
+    };
+
+    auto describe_name = [](const std::string& value) {
+        return value.empty() ? std::string("(not specified)") : value;
+    };
+
+    std::ostringstream perm_hex;
+    perm_hex << std::hex << std::uppercase << std::setfill('0') << std::setw(8)
+             << static_cast<std::uint32_t>(info.permissions);
+
+    std::cout << '\n';
+    std::cout << "Encryption dictionary details:" << std::endl;
+    std::cout << "  Filter: " << describe_name(info.filter) << std::endl;
+    std::cout << "  SubFilter: " << describe_name(info.sub_filter) << std::endl;
+    std::cout << "  Stream filter: " << describe_name(info.stream_filter) << std::endl;
+    std::cout << "  String filter: " << describe_name(info.string_filter) << std::endl;
+    std::cout << "  Embedded file filter: " << describe_name(info.ef_filter) << std::endl;
+    if (!info.crypt_filter.empty() || !info.crypt_filter_method.empty()) {
+        std::cout << "  Crypt filter: " << describe_name(info.crypt_filter);
+        if (!info.crypt_filter_method.empty()) {
+            std::cout << " (method: " << info.crypt_filter_method << ')';
+        }
+        std::cout << std::endl;
+    }
+    std::cout << "  Version (V): " << info.version << std::endl;
+    std::cout << "  Revision (R): " << info.revision << std::endl;
+    std::cout << "  Permissions (P): " << info.permissions << " (0x" << perm_hex.str() << ')' << std::endl;
+    std::cout << "  Encrypt metadata: " << (info.encrypt_metadata ? "yes" : "no") << std::endl;
+    std::cout << "  Public-key security (Recipients): " << (info.has_recipients ? "yes" : "no")
+              << std::endl;
+
+    auto print_binary_field = [&](const std::string& label, const std::vector<unsigned char>& bytes) {
+        std::cout << "  " << label << ':' << ' ';
+        if (bytes.empty()) {
+            std::cout << "(not present)";
+        } else {
+            std::cout << bytes.size() << " bytes (hex: " << describe_bytes(bytes) << ')';
+        }
+        std::cout << std::endl;
+    };
+
+    print_binary_field("Document ID", info.id);
+    print_binary_field("O entry", info.o_string);
+    print_binary_field("U entry", info.u_string);
+    if (info.revision >= 5) {
+        print_binary_field("OE entry", info.oe_string);
+        print_binary_field("UE entry", info.ue_string);
+        print_binary_field("Perms entry", info.perms);
+    }
+
+    std::cout << '\n';
+    std::cout << "Permission summary:" << std::endl;
+
+    std::uint32_t perm_bits = static_cast<std::uint32_t>(info.permissions);
+    auto print_permission = [](const std::string& label, bool allowed) {
+        std::cout << "    " << label << ": " << (allowed ? "allowed" : "not allowed") << std::endl;
+    };
+
+    bool can_print_low = (perm_bits & 0x4u) != 0u;
+    bool can_modify_other = (perm_bits & 0x8u) != 0u;
+    bool can_extract_all = (perm_bits & 0x10u) != 0u;
+    bool can_annotate = (perm_bits & 0x20u) != 0u;
+    bool can_fill_forms = (perm_bits & 0x100u) != 0u;
+    bool can_extract_accessibility = (perm_bits & 0x200u) != 0u;
+    bool can_assemble = (perm_bits & 0x400u) != 0u;
+    bool can_print_high = (perm_bits & 0x800u) != 0u;
+
+    if (info.revision >= 3) {
+        print_permission("extract for accessibility", can_extract_accessibility);
+    } else {
+        std::cout << "    extract for accessibility: not defined for revision " << info.revision << std::endl;
+    }
+    print_permission("extract for any purpose", can_extract_all);
+    print_permission("print low resolution", can_print_low);
+    if (info.revision >= 3) {
+        print_permission("print high resolution", can_print_high);
+        print_permission("modify document assembly", can_assemble);
+        print_permission("modify forms", can_fill_forms);
+    }
+    print_permission("modify annotations", can_annotate);
+    print_permission("modify other", can_modify_other);
+    if (info.revision >= 3) {
+        bool can_modify_everything = can_modify_other && can_annotate && can_fill_forms && can_assemble;
+        print_permission("modify anything", can_modify_everything);
+    }
 
     return true;
 }
