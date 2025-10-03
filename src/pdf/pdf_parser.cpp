@@ -9,6 +9,7 @@
 #include <iterator>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <unordered_map>
 #include <cstring>
@@ -29,6 +30,31 @@ void skip_whitespace_and_comments(const std::string& data, std::size_t& pos) {
             break;
         }
     }
+}
+
+std::string make_printable(std::string_view text) {
+    std::string sanitized;
+    sanitized.reserve(text.size());
+    for (unsigned char ch : text) {
+        if (ch == '\r' || ch == '\n') {
+            sanitized.push_back(' ');
+        } else if (ch >= 32 && ch <= 126) {
+            sanitized.push_back(static_cast<char>(ch));
+        } else {
+            sanitized.push_back('.');
+        }
+    }
+    return sanitized;
+}
+
+std::string make_printable_truncated(std::string_view text, std::size_t max_length) {
+    if (text.size() <= max_length) {
+        return make_printable(text);
+    }
+
+    std::string trimmed = make_printable(text.substr(0, max_length));
+    trimmed.append("...");
+    return trimmed;
 }
 
 bool parse_pdf_boolean(const std::string& data, std::size_t& pos, bool& value) {
@@ -365,13 +391,8 @@ bool extract_encryption_info(const std::string& data, PDFEncryptInfo& info) {
     }
 
     std::cout << "Found encryption object. Content:" << std::endl;
-    std::string snippet = data.substr(dict_start, std::min<std::size_t>(dict_end - dict_start, 200));
-    for (char& ch : snippet) {
-        if (ch == '\r' || ch == '\n') {
-            ch = ' ';
-        }
-    }
-    std::cout << snippet << std::endl;
+    std::string_view dict_view(data.c_str() + dict_start, dict_end - dict_start);
+    std::cout << make_printable_truncated(dict_view, 200) << std::endl;
 
     std::unordered_map<std::string, std::string> crypt_filter_methods;
 
@@ -744,12 +765,8 @@ void print_pdf_structure(const std::string& data) {
 
             if (count < 3) {
                 std::size_t context_end = std::min(pos + static_cast<std::size_t>(50), data.size());
-                std::string context = data.substr(pos, context_end - pos);
-                for (char& ch : context) {
-                    if (ch == '\r' || ch == '\n') {
-                        ch = ' ';
-                    }
-                }
+                std::string context = make_printable_truncated(
+                    std::string_view(data).substr(pos, context_end - pos), 80);
                 std::cout << "Found '" << keyword.token << "' at offset " << pos << ": " << context
                           << std::endl;
             }
